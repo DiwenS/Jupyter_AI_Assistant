@@ -22,7 +22,15 @@ class HelloRouteHandler(APIHandler):
             ),
         }))
 
+class HealthHandler(APIHandler):
+    @tornado.web.authenticated
+    def get(self):
+        self.finish(json.dumps({
+            "status": "ok",
+            "message": "AI backend is running",
+        }))
 
+""""
 class SummarizeCellHandler(APIHandler):
     @tornado.web.authenticated
     def post(self):
@@ -40,7 +48,39 @@ class SummarizeCellHandler(APIHandler):
             "status": "error",
             "message": message,
         }))
+"""
 
+class SummarizeCellHandler(APIHandler):
+    @tornado.web.authenticated
+    def post(self):
+        data = self.get_json_body() or {}
+
+        cell_id = data.get("cellId", "")
+        cell_index = data.get("cellIndex", None)
+        cell_type = data.get("cellType", "")
+
+        # Preferred frontend field.
+        cell_source = data.get("source", "")
+
+        # Backward compatibility with the earlier backend prototype.
+        if not cell_source:
+            cell_source = data.get("cell_source", "")
+
+        summary = summarize_cell(cell_source)
+
+        self.finish(json.dumps({
+            "status": "success",
+            "cellId": cell_id,
+            "cellIndex": cell_index,
+            "cellType": cell_type,
+            "summary": summary,
+            "details": "",
+            "metadata": {
+                "source": "rule-based"
+            }
+        }))
+
+"""
 class SuggestNextStepsHandler(APIHandler):
     @tornado.web.authenticated
     def post(self):
@@ -58,6 +98,46 @@ class SuggestNextStepsHandler(APIHandler):
             "status": "error",
             "message": message,
         }))
+"""
+
+class SuggestNextStepsHandler(APIHandler):
+    @tornado.web.authenticated
+    def post(self):
+        data = self.get_json_body() or {}
+
+        selected_cell = data.get("selectedCell", {})
+        context = data.get("context", {})
+
+        # Preferred frontend structure.
+        cell_source = selected_cell.get("source", "")
+
+        # Backward compatibility with the earlier backend prototype.
+        if not cell_source:
+            cell_source = data.get("cell_source", "")
+
+        raw_suggestions = suggest_next_cell(cell_source)
+
+        suggestions = []
+        for index, suggestion in enumerate(raw_suggestions):
+            suggestions.append({
+                "id": f"suggestion-{index + 1}",
+                "title": str(suggestion),
+                "description": str(suggestion),
+                "cellType": "code",
+                "content": "# TODO: generate cell content here",
+                "metadata": {
+                    "source": "rule-based"
+                }
+            })
+
+        self.finish(json.dumps({
+            "status": "success",
+            "suggestions": suggestions,
+            "metadata": {
+                "source": "rule-based",
+                "contextReceived": bool(context)
+            }
+        }))
 
 
 def setup_route_handlers(web_app):
@@ -68,12 +148,16 @@ def setup_route_handlers(web_app):
     summarize_route_pattern = url_path_join(
         base_url, "ai-assistant-extension", "summarize-cell"
     )
+    health_route_pattern = url_path_join(
+        base_url, "ai-assistant-extension", "health"
+    )
     suggest_route_pattern = url_path_join(
         base_url, "ai-assistant-extension", "suggest-next-steps"
     )
 
     handlers = [
         (hello_route_pattern, HelloRouteHandler),
+        (health_route_pattern, HealthHandler),
         (summarize_route_pattern, SummarizeCellHandler),
         (suggest_route_pattern, SuggestNextStepsHandler),
     ]
