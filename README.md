@@ -63,6 +63,9 @@ python -m venv .venv
 source .venv/bin/activate
 pip install --editable "."
 
+```
+
+```bash
 # Link your development version of the extension with JupyterLab
 jupyter labextension develop . --overwrite
 # Server extension must be manually installed in develop mode
@@ -72,14 +75,20 @@ jupyter server extension enable ai_assistant_extension
 # IMPORTANT: Unlike the steps above which are performed only once, do this step
 # every time you make a change.
 jlpm build
+
+# Watch the source directory in one terminal, automatically rebuilding when needed
+jlpm watch
+# Run JupyterLab in another terminal
+jupyter lab
 ```
 
 You can watch the source directory and run JupyterLab at the same time in different terminals to watch for changes in the extension's source and automatically rebuild the extension.
 
+
 ```bash
-# Watch the source directory in one terminal, automatically rebuilding when needed
-jlpm watch
-# Run JupyterLab in another terminal
+jupyter labextension develop . --overwrite
+jupyter server extension enable ai_assistant_extension
+jlpm build
 jupyter lab
 ```
 
