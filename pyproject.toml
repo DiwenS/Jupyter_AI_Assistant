@@ -37,6 +37,9 @@ fields = ["description", "authors", "urls", "keywords"]
 artifacts = ["ai_assistant_extension/labextension"]
 exclude = [".github", "binder"]
 
+[tool.hatch.build.targets.wheel]
+packages = ["ai_assistant_extension"]
+
 [tool.hatch.build.targets.wheel.shared-data]
 "ai_assistant_extension/labextension" = "share/jupyter/labextensions/ai-assistant-extension"
 "install.json" = "share/jupyter/labextensions/ai-assistant-extension/install.json"
