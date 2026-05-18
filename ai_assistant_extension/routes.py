@@ -139,6 +139,32 @@ class SuggestNextStepsHandler(APIHandler):
             }
         }))
 
+# 返回更新后的suggestion,主要是该suggestion的content
+# TODO: 目前更新的content是假的，后续需要接入真正的生成逻辑。或者后端新建一个函数
+class SelectSuggestionHandler(APIHandler):
+    @tornado.web.authenticated
+    def post(self):
+        data = self.get_json_body() or {}
+
+        selected_suggestion = data.get("selectedSuggestion", {})
+
+        suggestion = {
+            **selected_suggestion,
+            "content": "fake generated code cell",
+            "metadata": {
+                "source": "placeholder"
+            }
+        }
+
+        self.finish(json.dumps({
+            "status": "success",
+            "suggestion": suggestion,
+            "message": "Generated content for selected suggestion.",
+            "metadata": {
+                "source": "placeholder"
+            }
+        }))
+
 
 def setup_route_handlers(web_app):
     host_pattern = ".*$"
@@ -155,11 +181,19 @@ def setup_route_handlers(web_app):
         base_url, "ai-assistant-extension", "suggest-next-steps"
     )
 
+    select_suggestion_route_pattern = url_path_join(
+    base_url, "ai-assistant-extension", "select-suggestion"
+)
+
     handlers = [
         (hello_route_pattern, HelloRouteHandler),
         (health_route_pattern, HealthHandler),
         (summarize_route_pattern, SummarizeCellHandler),
         (suggest_route_pattern, SuggestNextStepsHandler),
+        (select_suggestion_route_pattern, SelectSuggestionHandler),
     ]
 
     web_app.add_handlers(host_pattern, handlers)
+
+
+
