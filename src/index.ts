@@ -6,13 +6,23 @@ import {
 import { INotebookTracker } from '@jupyterlab/notebook';
 import { Widget } from '@lumino/widgets';
 
+import { ServerConnection } from '@jupyterlab/services';
+import { ICellDescriptor, summarizeCell } from './api';
+
 class AIAssistantPanel extends Widget {
   private notebookTracker: INotebookTracker;
+  //添加serversetting方便之后调用 summarizeCell(this.serverSettings, cell)
+  private serverSettings: ServerConnection.ISettings;
+  private summaries = new Map<string, string>();
 
-  constructor(notebookTracker: INotebookTracker) {
+
+  constructor(notebookTracker: INotebookTracker,
+    serverSettings: ServerConnection.ISettings
+  ) {
     super();
 
     this.notebookTracker = notebookTracker;
+    this.serverSettings = serverSettings;
 
     this.id = 'ai-assistant-extension-panel';
     this.title.label = 'AI Assistant';
@@ -20,34 +30,33 @@ class AIAssistantPanel extends Widget {
     this.title.closable = true;
     this.title.iconClass = 'jp-SideBar-tabIcon jp-SettingsIcon';
 
+
     this.render();
+
+    //监听当前选择的cell并更新selected cell index
+    this.notebookTracker.activeCellChanged.connect(() => {
+      this.updateNotebookInfo();
+    });
+
+    this.notebookTracker.currentChanged.connect(() => {
+      this.updateNotebookInfo();
+    });
   }
 
   private render(): void {
     this.node.innerHTML = `
-      <div style="padding: 14px; font-family: sans-serif;">
+      <div style="padding: 14px; font-family: sans-serif; height: 100%; overflow-y: auto; box-sizing: border-box;">
         <h2>AI Notebook Assistant</h2>
-
-        <p>
-          This panel will help users summarize cells, organize notebook steps,
-          and generate lightweight next-step suggestions.
-        </p>
 
         <button id="refresh-notebook-info">
           Refresh notebook info
         </button>
 
+        <button id="refresh-cell-summaries">
+          Refresh summaries
+        </button>
+
         <hr />
-
-        <h3>Current Notebook</h3>
-        <div id="notebook-info">
-          No notebook selected yet.
-        </div>
-
-        <h3>Notebook Cells</h3>
-        <div id="cell-list">
-          Open a notebook and click refresh.
-        </div>
 
         <h3>Notebook Tree</h3>
         <div id="notebook-tree">
@@ -60,6 +69,18 @@ class AIAssistantPanel extends Widget {
             </li>
           </ul>
         </div>
+
+
+        <h3>Current Notebook</h3>
+        <div id="notebook-info">
+          No notebook selected yet.
+        </div>
+
+        <h3>Notebook Cells</h3>
+        <div id="cell-list">
+          Open a notebook and click refresh.
+        </div>
+
 
         <h3>Next-step Suggestions</h3>
         <ul>
@@ -77,8 +98,18 @@ class AIAssistantPanel extends Widget {
     refreshButton.onclick = () => {
       this.updateNotebookInfo();
     };
+
+    const summaryButton = this.node.querySelector(
+      '#refresh-cell-summaries'
+    ) as HTMLButtonElement;
+
+    summaryButton.onclick = () => {
+      void this.refreshSummaries();
+    };
   }
 
+
+  //读取notebook,刷新基本信息
   private updateNotebookInfo(): void {
     const current = this.notebookTracker.currentWidget;
 
@@ -122,14 +153,14 @@ class AIAssistantPanel extends Widget {
     for (let i = 0; i < cellCount; i++) {
       const cell = model.cells.get(i);
       const cellType = cell.type;
-      const source = cell.sharedModel.getSource();
-      const preview =
-        source.length > 80 ? source.slice(0, 80) + '...' : source;
+
+      const cellId = `${current.context.path}:${cell.id}`;
+      const summary = this.summaries.get(cellId) || 'No summary generated yet.';
 
       items.push(`
         <li>
           <b>[${i}] ${cellType}</b><br />
-          <code>${this.escapeHtml(preview || '(empty cell)')}</code>
+          <p><b>Summary:</b> ${this.escapeHtml(summary)}</p>
         </li>
       `);
     }
@@ -168,6 +199,40 @@ class AIAssistantPanel extends Widget {
     `;
   }
 
+  private getCurrentCells(): ICellDescriptor[] {
+    const current = this.notebookTracker.currentWidget;
+    const model = current?.content.model;
+    const cells: ICellDescriptor[] = [];
+
+    if (!current || !model) {
+      return cells;
+    }
+
+    for (let i = 0; i < model.cells.length; i++) {
+      const cell = model.cells.get(i);
+
+      cells.push({
+        cellId: `${current.context.path}:${cell.id}`,
+        cellIndex: i,
+        cellType: cell.type,
+        source: cell.sharedModel.getSource()
+      });
+    }
+
+    return cells;
+  }
+
+  private async refreshSummaries(): Promise<void> {
+    const cells = this.getCurrentCells();
+
+    for (const cell of cells) {
+      const response = await summarizeCell(this.serverSettings, cell);
+      //console.log(cell.cellIndex, response.summary);
+      this.summaries.set(cell.cellId, response.summary);
+    }
+    this.updateNotebookInfo();
+  }
+
   private escapeHtml(text: string): string {
     return text
       .replace(/&/g, '&amp;')
@@ -186,7 +251,10 @@ const plugin: JupyterFrontEndPlugin<void> = {
   activate: (app: JupyterFrontEnd, notebookTracker: INotebookTracker) => {
     console.log('AI Assistant Extension activated!');
 
-    const panel = new AIAssistantPanel(notebookTracker);
+    const panel = new AIAssistantPanel(
+      notebookTracker,
+      app.serviceManager.serverSettings
+    );
 
     app.shell.add(panel, 'left', { rank: 600 });
     app.shell.activateById(panel.id);
