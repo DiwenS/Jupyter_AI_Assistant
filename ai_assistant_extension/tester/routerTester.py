@@ -118,7 +118,52 @@ def test_suggestions():
 
     print_response(response)
 
+# =========================
+# 测试 select-suggestion
+# =========================
 
+def test_select_suggestion():
+    print_title("Testing /select-suggestion")
+
+    suggest_payload = {
+        "selectedCell": {
+            "cellId": "cell-0",
+            "cellIndex": 0,
+            "cellType": "code",
+            "source": "import pandas as pd",
+            "summary": "Import pandas"
+        },
+        "context": {
+            "previousCells": [],
+            "nextCells": [],
+            "tree": []
+        }
+    }
+
+    suggest_response = requests.post(
+        f"{BASE_URL}/suggest-next-steps",
+        headers=HEADERS,
+        json=suggest_payload
+    )
+
+    suggestions = suggest_response.json().get("suggestions", [])
+
+    if not suggestions:
+        print("No suggestions returned; cannot test /select-suggestion.")
+        return
+
+    payload = {
+        "selectedCell": suggest_payload["selectedCell"],
+        "selectedSuggestion": suggestions[0]
+    }
+
+    response = requests.post(
+        f"{BASE_URL}/select-suggestion",
+        headers=HEADERS,
+        json=payload
+    )
+
+    print_response(response)
 # =========================
 # 主程序
 # =========================
@@ -129,4 +174,5 @@ if __name__ == "__main__":
     test_hello()
     test_summarize()
     test_suggestions()
+    test_select_suggestion()
     print("\nAll tests completed.")
