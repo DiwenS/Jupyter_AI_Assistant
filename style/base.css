@@ -3,3 +3,273 @@
 
     https://jupyterlab.readthedocs.io/en/stable/developer/css.html
 */
+
+/* 侧边栏整体 */
+.jp-ai-assistant-root {
+  box-sizing: border-box;
+  color: var(--jp-ui-font-color1);
+  font-family: var(--jp-ui-font-family);
+  height: 100%;
+  overflow-y: auto;
+  padding: 14px;
+}
+
+/* 没有打开 notebook 时的 tree 空状态提示。 */
+.jp-ai-assistant-tree-empty {
+  background: var(--jp-layout-color2);
+  border: 1px solid var(--jp-border-color2);
+  color: var(--jp-ui-font-color2);
+  padding: 8px;
+}
+
+/* Notebook Tree 标题行：左侧标题，右侧切换summary显示模式 */
+.jp-ai-assistant-section-header {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.jp-ai-assistant-section-header h3 {
+  margin-bottom: 0;
+}
+
+/* Summary 显示模式：
+Fixed 固定显示，Hover 悬浮显示。 */
+.jp-ai-assistant-summary-mode {
+  border: 0;
+  display: flex;
+  flex-shrink: 0;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+}
+
+.jp-ai-assistant-summary-mode label {
+  align-items: center;
+  color: var(--jp-ui-font-color2);
+  display: inline-flex;
+  gap: 3px;
+}
+
+/* Tree 缩放工具栏：控制整棵树的视觉大小。 */
+.jp-ai-assistant-tree-toolbar {
+  align-items: center;
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+.jp-ai-assistant-tree-toolbar button {
+  background: var(--jp-layout-color2);
+  border: 1px solid var(--jp-border-color2);
+  color: var(--jp-ui-font-color1);
+  cursor: pointer;
+  font-family: var(--jp-ui-font-family);
+  font-weight: 600;
+  height: 24px;
+  padding: 0;
+  width: 24px;
+}
+
+.jp-ai-assistant-tree-toolbar button:hover,
+.jp-ai-assistant-tree-toolbar button:focus {
+  border-color: var(--jp-brand-color1);
+  outline: none;
+}
+
+.jp-ai-assistant-tree-toolbar button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.jp-ai-assistant-tree-toolbar span {
+  color: var(--jp-ui-font-color2);
+  font-size: var(--jp-ui-font-size1);
+  min-width: 40px;
+  text-align: center;
+}
+
+/* 小号图例：解释不同 node 形状代表的 cell 类型。 */
+.jp-ai-assistant-tree-legend {
+  color: var(--jp-ui-font-color2);
+  font-size: var(--jp-ui-font-size0);
+  line-height: 1.4;
+  margin-top: 6px;
+}
+
+/* Tree 外层容器：允许横向滚动，避免放大后内容被侧边栏裁掉。 */
+.jp-ai-assistant-tree {
+  margin-top: 8px;
+  overflow-x: auto;
+  overflow-y: visible;
+  padding-bottom: 8px;
+}
+
+/* Tree canvas 是实际被缩放的区域，transform-origin 保证从左上角缩放。 */
+.jp-ai-assistant-tree-canvas {
+  min-width: 220px;
+  transform-origin: top left;
+}
+
+/* Root node：代表当前 notebook。 */
+.jp-ai-assistant-tree-root {
+  align-items: center;
+  background: var(--jp-brand-color1);
+  border: 2px solid var(--jp-brand-color1);
+  border-radius: 50%;
+  box-sizing: border-box;
+  color: var(--jp-ui-inverse-font-color1);
+  display: flex;
+  flex-direction: column;
+  height: 72px;
+  justify-content: center;
+  padding: 8px;
+  text-align: center;
+  width: 72px;
+}
+
+.jp-ai-assistant-tree-root span {
+  color: inherit;
+  font-size: var(--jp-ui-font-size0);
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.jp-ai-assistant-tree-root strong {
+  display: none;
+}
+
+.jp-ai-assistant-tree-root small {
+  color: inherit;
+  font-size: var(--jp-ui-font-size0);
+  font-weight: 600;
+}
+
+/* Cell nodes 容器：通过 ::before 画纵向主干线。 */
+.jp-ai-assistant-tree-children {
+  display: grid;
+  gap: 14px;
+  margin-left: 35px;
+  padding-left: 26px;
+  padding-top: 16px;
+  position: relative;
+}
+
+.jp-ai-assistant-tree-children::before {
+  background: var(--jp-border-color1);
+  bottom: 18px;
+  content: '';
+  left: 0;
+  position: absolute;
+  top: -16px;
+  width: 2px;
+}
+
+/* 单个 cell node 行：左侧是图形 node，右侧可显示 fixed summary。 */
+.jp-ai-assistant-tree-node {
+  align-items: start;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 56px minmax(0, 1fr);
+  position: relative;
+}
+
+/* 从主干线连接到每个 node 的横向分支线。 */
+.jp-ai-assistant-tree-node::before {
+  background: var(--jp-border-color1);
+  content: '';
+  height: 2px;
+  left: -26px;
+  position: absolute;
+  top: 27px;
+  width: 26px;
+}
+
+/* Node 按钮基础样式：默认圆形，具体形状由 cell type 覆盖。 */
+.jp-ai-assistant-tree-node-button {
+  align-items: center;
+  background: var(--jp-layout-color1);
+  border: 2px solid var(--jp-border-color2);
+  border-radius: 50%;
+  box-sizing: border-box;
+  color: var(--jp-ui-font-color1);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  font-family: var(--jp-ui-font-family);
+  height: 56px;
+  justify-content: center;
+  padding: 4px;
+  position: relative;
+  text-align: center;
+  width: 56px;
+}
+
+/* Code cell 使用方形 node。 */
+.jp-ai-assistant-tree-node-button.jp-ai-assistant-tree-node-code,
+.jp-ai-assistant-tree-node-button[data-cell-type='code'] {
+  border-radius: 8px;
+}
+
+/* Markdown cell 使用圆形 node。 */
+.jp-ai-assistant-tree-node-button.jp-ai-assistant-tree-node-markdown,
+.jp-ai-assistant-tree-node-button[data-cell-type='markdown'] {
+  border-radius: 50%;
+}
+
+/* 当前 notebook active cell 对应的 node 高亮。 */
+.jp-ai-assistant-tree-node-active .jp-ai-assistant-tree-node-button {
+  background: var(--jp-layout-color2);
+  border-color: var(--jp-brand-color1);
+  box-shadow: 0 0 0 3px var(--jp-brand-color2);
+}
+
+.jp-ai-assistant-tree-node-button:hover,
+.jp-ai-assistant-tree-node-button:focus {
+  border-color: var(--jp-brand-color1);
+  outline: none;
+}
+
+.jp-ai-assistant-tree-node-button span {
+  display: block;
+  font-size: var(--jp-ui-font-size2);
+  font-weight: 600;
+  line-height: 1.1;
+}
+
+/* Fixed 模式下的 summary：固定显示在 node 右侧。 */
+.jp-ai-assistant-tree-node-summary-fixed {
+  color: var(--jp-ui-font-color2);
+  font-size: var(--jp-ui-font-size1);
+  line-height: 1.4;
+  max-width: 190px;
+  overflow-wrap: anywhere;
+  padding-top: 5px;
+}
+
+/* Hover 模式下的 summary tooltip：固定宽度，避免文字被挤成竖排。 */
+.jp-ai-assistant-tree-node-tooltip {
+  background: var(--jp-layout-color1);
+  border: 1px solid var(--jp-border-color2);
+  box-shadow: var(--jp-elevation-z4);
+  color: var(--jp-ui-font-color1);
+  display: none;
+  font-size: var(--jp-ui-font-size1);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  padding: 8px;
+  position: absolute;
+  left: 64px;
+  text-align: left;
+  top: 4px;
+  white-space: normal;
+  width: 220px;
+  z-index: 10;
+}
+
+.jp-ai-assistant-tree-node-button:hover .jp-ai-assistant-tree-node-tooltip,
+.jp-ai-assistant-tree-node-button:focus .jp-ai-assistant-tree-node-tooltip {
+  display: block;
+}
