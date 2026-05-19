@@ -346,6 +346,9 @@ class AIAssistantPanel extends Widget {
 
     // 给每个 cell 添加 AI next button。
     this.attachAInextButtons();
+
+    // 同步显示当前cell 的 suggestions。
+    this.syncCellSuggestions();
   }
 
   private updateStatusMessage(): void {
@@ -471,6 +474,11 @@ class AIAssistantPanel extends Widget {
           (cellWidget, index) => {
             const cellNode = cellWidget.node;
             cellNode.classList.add('jp-ai-assistant-cell-with-ai-next');
+            const buttonHost =
+              (cellNode.querySelector('.jp-Cell-inputWrapper') as HTMLElement | null) ??
+              (cellNode.querySelector('.jp-InputArea') as HTMLElement | null) ??
+              cellNode;
+            buttonHost.classList.add('jp-ai-assistant-ai-next-host');
 
             let button = cellNode.querySelector(
               '.jp-ai-assistant-ai-next-button'
@@ -482,7 +490,10 @@ class AIAssistantPanel extends Widget {
               button.type = 'button';
               button.textContent = 'AI Next';
               button.dataset.lmSuppressShortcuts = 'true';
-              cellNode.appendChild(button);
+            }
+
+            if (button.parentElement !== buttonHost) {
+              buttonHost.appendChild(button);
             }
 
             const cells = this.getCurrentCells();
@@ -549,7 +560,69 @@ class AIAssistantPanel extends Widget {
     this.updateNotebookInfo();
 
   }
+  //显示具体的suggestions
+  private syncCellSuggestions(): void {
+    const current = this.notebookTracker.currentWidget;
 
+    if (!current) {
+      return;
+    }
+
+    window.setTimeout(() => {
+      const cells = this.getCurrentCells();
+
+      current.content.widgets.forEach((cellWidget, index) => {
+        const cell = cells[index];
+
+        if (!cell) {
+          return;
+        }
+
+        const suggestions = this.suggestions.get(cell.cellId) ?? [];
+        const cellNode = cellWidget.node;
+
+        let panel = cellNode.querySelector(
+          '.jp-ai-assistant-cell-suggestions'
+        ) as HTMLDivElement | null;
+
+        if (suggestions.length === 0) {
+          panel?.remove();
+          return;
+        }
+
+        if (!panel) {
+          panel = document.createElement('div');
+          panel.className = 'jp-ai-assistant-cell-suggestions';
+          cellNode.appendChild(panel);
+        }
+
+        panel.textContent = '';
+
+        const title = document.createElement('div');
+        title.className = 'jp-ai-assistant-cell-suggestions-title';
+        title.textContent = 'Next-step suggestions';
+        panel.appendChild(title);
+
+        suggestions.forEach(suggestion => {
+          const option = document.createElement('button');
+          option.type = 'button';
+          option.className = 'jp-ai-assistant-suggestion-option';
+          option.dataset.lmSuppressShortcuts = 'true';
+
+          const optionTitle = document.createElement('strong');
+          optionTitle.textContent = suggestion.title;
+          option.appendChild(optionTitle);
+
+          const optionDescription = document.createElement('span');
+          optionDescription.className = 'jp-ai-assistant-suggestion-description';
+          optionDescription.textContent = suggestion.description;
+          option.appendChild(optionDescription);
+
+          panel.appendChild(option);
+        });
+      });
+    }, 0);
+  }
 
   private escapeHtml(text: string): string {
     return text

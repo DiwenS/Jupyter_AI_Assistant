@@ -279,6 +279,10 @@ Fixed 固定显示，Hover 悬浮显示。 */
   position: relative;
 }
 
+.jp-ai-assistant-ai-next-host {
+  position: relative;
+}
+
 .jp-ai-assistant-ai-next-button {
   background: var(--jp-brand-color1);
   border: 1px solid var(--jp-brand-color1);
@@ -301,4 +305,47 @@ Fixed 固定显示，Hover 悬浮显示。 */
 .jp-ai-assistant-ai-next-button:focus {
   background: var(--jp-brand-color0);
   outline: none;
+}
+
+
+/* 显示suggestionsns */
+.jp-ai-assistant-cell-suggestions {
+  background: var(--jp-layout-color1);
+  border: 1px solid var(--jp-border-color2);
+  border-radius: 4px;
+  display: grid;
+  gap: 6px;
+  margin: 8px 16px 8px 72px;
+  padding: 8px;
+}
+
+.jp-ai-assistant-cell-suggestions-title {
+  color: var(--jp-ui-font-color2);
+  font-size: var(--jp-ui-font-size0);
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.jp-ai-assistant-suggestion-option {
+  background: var(--jp-layout-color2);
+  border: 1px solid var(--jp-border-color2);
+  border-radius: 4px;
+  color: var(--jp-ui-font-color1);
+  cursor: pointer;
+  display: grid;
+  font-family: var(--jp-ui-font-family);
+  gap: 3px;
+  padding: 6px 8px;
+  text-align: left;
+}
+
+.jp-ai-assistant-suggestion-option:hover,
+.jp-ai-assistant-suggestion-option:focus {
+  border-color: var(--jp-brand-color1);
+  outline: none;
+}
+
+.jp-ai-assistant-suggestion-description {
+  font-size: var(--jp-ui-font-size1);
+  line-height: 1.35;
 }
