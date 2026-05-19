@@ -167,6 +167,29 @@ Fixed 固定显示，Hover 悬浮显示。 */
   width: 2px;
 }
 
+.jp-ai-assistant-tree-family {
+  display: grid;
+  gap: 10px;
+}
+
+.jp-ai-assistant-tree-generated-children {
+  display: grid;
+  gap: 10px;
+  margin-left: 66px;
+  padding-left: 22px;
+  position: relative;
+}
+
+.jp-ai-assistant-tree-generated-children::before {
+  background: var(--jp-border-color2);
+  bottom: 18px;
+  content: '';
+  left: 0;
+  position: absolute;
+  top: -10px;
+  width: 2px;
+}
+
 /* 单个 cell node 行：左侧是图形 node，右侧可显示 fixed summary。 */
 .jp-ai-assistant-tree-node {
   align-items: start;
@@ -185,6 +208,12 @@ Fixed 固定显示，Hover 悬浮显示。 */
   position: absolute;
   top: 27px;
   width: 26px;
+}
+
+.jp-ai-assistant-tree-generated-children .jp-ai-assistant-tree-node::before {
+  background: var(--jp-border-color2);
+  left: -22px;
+  width: 22px;
 }
 
 /* Node 按钮基础样式：默认圆形，具体形状由 cell type 覆盖。 */
@@ -237,6 +266,17 @@ Fixed 固定显示，Hover 悬浮显示。 */
   font-size: var(--jp-ui-font-size2);
   font-weight: 600;
   line-height: 1.1;
+}
+
+.jp-ai-assistant-tree-node-button small {
+  color: var(--jp-ui-font-color2);
+  font-size: var(--jp-ui-font-size0);
+  font-weight: 600;
+  line-height: 1;
+}
+
+.jp-ai-assistant-tree-node-generated .jp-ai-assistant-tree-node-button {
+  border-style: dashed;
 }
 
 /* Fixed 模式下的 summary：固定显示在 node 右侧。 */

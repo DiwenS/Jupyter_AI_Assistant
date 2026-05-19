@@ -245,6 +245,8 @@ class AIAssistantPanel extends Widget {
       return;
     }
 
+    this.hydrateGeneratedCellRelations();
+
     const notebookName = current.context.path;
     const cellCount = model.cells.length;
     const activeCellIndex = notebook.activeCellIndex;
@@ -275,18 +277,19 @@ class AIAssistantPanel extends Widget {
     cellList.innerHTML = `<ul>${items.join('')}</ul>`;
 
     const treeNodes: string[] = [];
-
-    // 将 notebook 中每个 cell 转成一个 tree node：
-    // code cell 用方形，markdown cell 用圆形；node 数字对应 cell index。
-    for (let i = 0; i < cellCount; i++) {
-      const cell = model.cells.get(i);
-      const cellType = cell.type;
+    const generatedCellIdSet = new Set(this.generatedCellIds.values());
+    const renderTreeNode = (
+      cellIndex: number,
+      cellType: string,
+      summary: string,
+      isGenerated: boolean
+    ): string => {
       const normalizedCellType = cellType.toLowerCase();
-      const cellId = `${current.context.path}:${cell.id}`;
-      const summary = this.summaries.get(cellId) || 'No summary generated yet.';
-
       const activeClass =
-        i === activeCellIndex ? ' jp-ai-assistant-tree-node-active' : '';
+        cellIndex === activeCellIndex ? ' jp-ai-assistant-tree-node-active' : '';
+      const generatedClass = isGenerated
+        ? ' jp-ai-assistant-tree-node-generated'
+        : '';
       // 根据 cell 类型决定 node 形状，未知类型默认按 markdown 的圆形处理。
       const nodeShapeClass =
         normalizedCellType === 'code'
@@ -307,19 +310,46 @@ class AIAssistantPanel extends Widget {
           )}</div>`
           : '';
 
-      treeNodes.push(`
-        <div class="jp-ai-assistant-tree-node${activeClass}">
+      return `
+        <div class="jp-ai-assistant-tree-node${activeClass}${generatedClass}">
           <button
             class="jp-ai-assistant-tree-node-button${nodeShapeClass}"
             type="button"
-            data-cell-index="${i}"
+            data-cell-index="${cellIndex}"
             data-cell-type="${this.escapeHtml(normalizedCellType)}"
-            title="Jump to cell ${i}"
+            title="Jump to cell ${cellIndex}"
           >
-            <span>${i}</span>
+            <span>${cellIndex}</span>
+            ${isGenerated ? '<small>AI</small>' : ''}
             ${hoverSummaryMarkup}
           </button>
           ${fixedSummaryMarkup}
+        </div>
+      `;
+    };
+
+    // 将 notebook 中每个非 generated cell 转成一个 tree node。
+    // generated cells 会作为 source cell 的子节点显示，避免重复出现在主干上。
+    for (let i = 0; i < cellCount; i++) {
+      const cell = model.cells.get(i);
+      const cellId = `${current.context.path}:${cell.id}`;
+
+      if (generatedCellIdSet.has(cellId)) {
+        continue;
+      }
+
+      const cellType = cell.type;
+      const summary = this.summaries.get(cellId) || 'No summary generated yet.';
+      const childNodes = this.renderGeneratedChildTreeNodes(
+        current,
+        cellId,
+        renderTreeNode
+      );
+
+      treeNodes.push(`
+        <div class="jp-ai-assistant-tree-family">
+          ${renderTreeNode(i, cellType, summary, false)}
+          ${childNodes}
         </div>
       `);
     }
@@ -362,6 +392,70 @@ class AIAssistantPanel extends Widget {
 
     // 同步显示当前cell 的 suggestions。
     this.syncCellSuggestions();
+  }
+
+  private renderGeneratedChildTreeNodes(
+    panel: NotebookPanel,
+    sourceCellId: string,
+    renderTreeNode: (
+      cellIndex: number,
+      cellType: string,
+      summary: string,
+      isGenerated: boolean
+    ) => string,
+    visitedCellIds = new Set<string>()
+  ): string {
+    const model = panel.content.model;
+    const childNodes: string[] = [];
+
+    if (!model || visitedCellIds.has(sourceCellId)) {
+      return '';
+    }
+
+    visitedCellIds.add(sourceCellId);
+
+    this.generatedCellIds.forEach((generatedCellId, suggestionKey) => {
+      if (!suggestionKey.startsWith(`${sourceCellId}::`)) {
+        return;
+      }
+
+      const generatedCellIndex = this.findCellIndexByCellId(
+        panel,
+        generatedCellId
+      );
+
+      if (generatedCellIndex < 0) {
+        return;
+      }
+
+      const generatedCell = model.cells.get(generatedCellIndex);
+      const generatedSuggestion = this.generatedSuggestions.get(suggestionKey);
+      const summary =
+        generatedSuggestion?.title || 'Generated from selected suggestion.';
+      const nestedChildNodes = this.renderGeneratedChildTreeNodes(
+        panel,
+        generatedCellId,
+        renderTreeNode,
+        new Set(visitedCellIds)
+      );
+
+      childNodes.push(`
+        <div class="jp-ai-assistant-tree-family">
+          ${renderTreeNode(generatedCellIndex, generatedCell.type, summary, true)}
+          ${nestedChildNodes}
+        </div>
+      `);
+    });
+
+    if (childNodes.length === 0) {
+      return '';
+    }
+
+    return `
+      <div class="jp-ai-assistant-tree-generated-children">
+        ${childNodes.join('')}
+      </div>
+    `;
   }
 
   private updateStatusMessage(): void {
@@ -687,7 +781,7 @@ class AIAssistantPanel extends Widget {
       return;
     }
 
-    const cellData = this.createGeneratedCellData(suggestion);
+    const cellData = this.createGeneratedCellData(sourceCell, suggestion);
     const suggestionKey = this.createSuggestionKey(
       sourceCell.cellId,
       suggestion.id
@@ -724,6 +818,57 @@ class AIAssistantPanel extends Widget {
     await current.content.scrollToItem(targetIndex, 'center');
   }
 
+  private hydrateGeneratedCellRelations(): void {
+    const current = this.notebookTracker.currentWidget;
+    const model = current?.content.model;
+
+    if (!current || !model) {
+      return;
+    }
+
+    for (let index = 0; index < model.cells.length; index++) {
+      const cell = model.cells.get(index);
+      const metadata = cell.sharedModel.getMetadata();
+
+      if (metadata.ai_assistant_generated !== true) {
+        continue;
+      }
+
+      const parentRawCellId = metadata.ai_assistant_parent_cell_id;
+      const suggestionId = metadata.ai_assistant_suggestion_id;
+
+      if (
+        typeof parentRawCellId !== 'string' ||
+        typeof suggestionId !== 'string'
+      ) {
+        continue;
+      }
+
+      const parentCellId = `${current.context.path}:${parentRawCellId}`;
+      const generatedCellId = `${current.context.path}:${cell.id}`;
+      const suggestionKey = this.createSuggestionKey(parentCellId, suggestionId);
+      const suggestionTitle =
+        typeof metadata.ai_assistant_suggestion_title === 'string'
+          ? metadata.ai_assistant_suggestion_title
+          : 'Generated from selected suggestion.';
+
+      this.generatedCellIds.set(suggestionKey, generatedCellId);
+
+      if (!this.generatedSuggestions.has(suggestionKey)) {
+        this.generatedSuggestions.set(suggestionKey, {
+          id: suggestionId,
+          title: suggestionTitle,
+          description: '',
+          cellType: cell.type,
+          content: cell.sharedModel.getSource(),
+          metadata: {
+            source: 'metadata'
+          }
+        });
+      }
+    }
+  }
+
   private createSuggestionKey(cellId: string, suggestionId: string): string {
     return `${cellId}::${suggestionId}`;
   }
@@ -758,13 +903,18 @@ class AIAssistantPanel extends Widget {
     return insertIndex;
   }
 
-  private createGeneratedCellData(suggestion: ISuggestion): IGeneratedCellData {
+  private createGeneratedCellData(
+    sourceCell: ICellDescriptor,
+    suggestion: ISuggestion
+  ): IGeneratedCellData {
     const cellType = this.normalizeGeneratedCellType(suggestion.cellType);
     const baseCell = {
       cell_type: cellType,
       source: suggestion.content,
       metadata: {
         ai_assistant_generated: true,
+        ai_assistant_parent_cell_id: this.getRawCellId(sourceCell.cellId),
+        ai_assistant_suggestion_title: suggestion.title,
         ai_assistant_suggestion_id: suggestion.id
       }
     };
@@ -786,6 +936,10 @@ class AIAssistantPanel extends Widget {
     }
 
     return 'code';
+  }
+
+  private getRawCellId(cellId: string): string {
+    return cellId.split(':').pop() ?? cellId;
   }
 
   private findCellIndexByCellId(panel: NotebookPanel, cellId: string): number {
