@@ -48,12 +48,12 @@ POST /ai-assistant-extension/summarize-cell
 ```
 
 ### Request 字段说明
-| 字段 | 类型 | 是否必需 | 说明 |
-|---|---|---:|---|
-| `cellId` | string | 否 | 前端为 cell 分配的 ID |
-| `cellIndex` | number | 否 | cell 在 notebook 中的序号 |
-| `cellType` | string | 否 | cell 类型，例如 `code` 或 `markdown` |
-| `source` | string | 是 | cell 的源代码或文本内容 |
+| 字段        | 类型   | 是否必需 | 说明                                 |
+| ----------- | ------ | -------: | ------------------------------------ |
+| `cellId`    | string |       否 | 前端为 cell 分配的 ID                |
+| `cellIndex` | number |       否 | cell 在 notebook 中的序号            |
+| `cellType`  | string |       否 | cell 类型，例如 `code` 或 `markdown` |
+| `source`    | string |       是 | cell 的源代码或文本内容              |
 
 ### 兼容旧版 Request 格式
 为了兼容之前的 rule-based backend prototype，目前后端也支持旧格式：
@@ -80,16 +80,16 @@ POST /ai-assistant-extension/summarize-cell
 ```
 
 ### Response 字段说明
-| 字段 | 类型 | 说明 |
-|---|---|---|
-| `status` | string | 请求状态，目前成功时为 `success` |
-| `cellId` | string | 从 request 中传回的 cell ID |
-| `cellIndex` | number 或 null | 从 request 中传回的 cell 序号 |
-| `cellType` | string | 从 request 中传回的 cell 类型 |
-| `summary` | string | 后端生成的 cell summary |
-| `details` | string | 预留字段，目前为空字符串 |
-| `metadata` | object | 额外信息 |
-| `metadata.source` | string | 当前生成来源，目前为 `rule-based` |
+| 字段              | 类型           | 说明                              |
+| ----------------- | -------------- | --------------------------------- |
+| `status`          | string         | 请求状态，目前成功时为 `success`  |
+| `cellId`          | string         | 从 request 中传回的 cell ID       |
+| `cellIndex`       | number 或 null | 从 request 中传回的 cell 序号     |
+| `cellType`        | string         | 从 request 中传回的 cell 类型     |
+| `summary`         | string         | 后端生成的 cell summary           |
+| `details`         | string         | 预留字段，目前为空字符串          |
+| `metadata`        | object         | 额外信息                          |
+| `metadata.source` | string         | 当前生成来源，目前为 `rule-based` |
 
 
 ## 3. Next step suggestions接口
@@ -121,18 +121,18 @@ POST /ai-assistant-extension/suggest-next-steps
 ```
 
 ### Request 字段说明
-| 字段 | 类型 | 是否必需 | 说明 |
-|---|---|---:|---|
-| `selectedCell` | object | 是 | 当前选中的 cell |
-| `selectedCell.cellId` | string | 否 | 当前 cell 的 ID |
-| `selectedCell.cellIndex` | number | 否 | 当前 cell 在 notebook 中的序号 |
-| `selectedCell.cellType` | string | 否 | 当前 cell 类型，例如 `code` 或 `markdown` |
-| `selectedCell.source` | string | 是 | 当前 cell 的源代码或文本内容 |
-| `selectedCell.summary` | string | 否 | 当前 cell 已有的 summary |
-| `context` | object | 否 | notebook 上下文信息 |
-| `context.previousCells` | array | 否 | 当前 cell 前面的 cells 或 summaries |
-| `context.nextCells` | array | 否 | 当前 cell 后面的 cells 或 summaries |
-| `context.tree` | array | 否 | 当前 notebook tree 结构 |
+| 字段                     | 类型   | 是否必需 | 说明                                      |
+| ------------------------ | ------ | -------: | ----------------------------------------- |
+| `selectedCell`           | object |       是 | 当前选中的 cell                           |
+| `selectedCell.cellId`    | string |       否 | 当前 cell 的 ID                           |
+| `selectedCell.cellIndex` | number |       否 | 当前 cell 在 notebook 中的序号            |
+| `selectedCell.cellType`  | string |       否 | 当前 cell 类型，例如 `code` 或 `markdown` |
+| `selectedCell.source`    | string |       是 | 当前 cell 的源代码或文本内容              |
+| `selectedCell.summary`   | string |       否 | 当前 cell 已有的 summary                  |
+| `context`                | object |       否 | notebook 上下文信息                       |
+| `context.previousCells`  | array  |       否 | 当前 cell 前面的 cells 或 summaries       |
+| `context.nextCells`      | array  |       否 | 当前 cell 后面的 cells 或 summaries       |
+| `context.tree`           | array  |       否 | 当前 notebook tree 结构                   |
 
 ### 兼容旧版 Request 格式
 为了兼容之前的 rule-based backend prototype，目前后端也支持旧格式：
@@ -166,20 +166,73 @@ POST /ai-assistant-extension/suggest-next-steps
 ```
 
 ### Response 字段说明
-| 字段 | 类型 | 说明 |
-|---|---|---|
-| `status` | string | 请求状态，目前成功时为 `success` |
-| `suggestions` | array | 下一步建议列表 |
-| `suggestions[].id` | string | suggestion 的 ID |
-| `suggestions[].title` | string | 前端展示用的简短标题 |
-| `suggestions[].description` | string | 对 suggestion 的详细说明 |
-| `suggestions[].cellType` | string | 建议生成的 cell 类型，例如 `code` 或 `markdown` |
-| `suggestions[].content` | string | 建议插入到新 cell 中的内容 |
-| `suggestions[].metadata` | object | 当前 suggestion 的额外信息 |
-| `metadata.source` | string | 当前生成来源，目前为 `rule-based` |
-| `metadata.contextReceived` | boolean | 后端是否收到了 context |
+| 字段                        | 类型    | 说明                                            |
+| --------------------------- | ------- | ----------------------------------------------- |
+| `status`                    | string  | 请求状态，目前成功时为 `success`                |
+| `suggestions`               | array   | 下一步建议列表                                  |
+| `suggestions[].id`          | string  | suggestion 的 ID                                |
+| `suggestions[].title`       | string  | 前端展示用的简短标题                            |
+| `suggestions[].description` | string  | 对 suggestion 的详细说明                        |
+| `suggestions[].cellType`    | string  | 建议生成的 cell 类型，例如 `code` 或 `markdown` |
+| `suggestions[].content`     | string  | 建议插入到新 cell 中的内容                      |
+| `suggestions[].metadata`    | object  | 当前 suggestion 的额外信息                      |
+| `metadata.source`           | string  | 当前生成来源，目前为 `rule-based`               |
+| `metadata.contextReceived`  | boolean | 后端是否收到了 context                          |
 
 ---
+## select-suggestion 接口
+
+### Endpoint
+```http
+POST /ai-assistant-extension/select-suggestion
+```
+### 用途
+接收用户选中的 suggestion，并返回带有生成内容的 updated suggestion。当前阶段 content 是 placeholder。
+
+### 推荐Request格式
+```json
+{
+  "selectedCell": {
+    "cellId": "cell-0",
+    "cellIndex": 0,
+    "cellType": "code",
+    "source": "import pandas as pd",
+    "summary": "Import libraries"
+  },
+  "selectedSuggestion": {
+    "id": "suggestion-1",
+    "title": "Plot distribution",
+    "description": "Create a histogram.",
+    "cellType": "code",
+    "content": "# TODO: generate cell content here",
+    "metadata": {
+      "source": "rule-based"
+    }
+  }
+}
+```
+
+### Response
+```json
+{
+  "status": "success",
+  "suggestion": {
+    "id": "suggestion-1",
+    "title": "FAKE suggestion1 for cell import pandas as pd",
+    "description": "FAKE suggestion1 for cell import pandas as pd",
+    "cellType": "code",
+    "content": "fake generated code cell",
+    "metadata": {
+      "source": "placeholder"
+    }
+  },
+  "message": "Generated content for selected suggestion.",
+  "metadata": {
+    "source": "placeholder"
+  }
+}
+```
+
 
 ## 4. 前端调用说明
 前端建议使用 `src/request.ts` 中已有的 `requestAPI()` 方法调用后端接口，而不是直接使用普通 `fetch()`。原因是 JupyterLab 的 request helper 可以处理 base URL、server settings 和认证相关问题。
