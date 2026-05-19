@@ -3,11 +3,17 @@ import {
   JupyterFrontEndPlugin
 } from '@jupyterlab/application';
 
-import { INotebookTracker } from '@jupyterlab/notebook';
+import { INotebookTracker, NotebookPanel } from '@jupyterlab/notebook';
 import { Widget } from '@lumino/widgets';
 
 import { ServerConnection } from '@jupyterlab/services';
-import { ICellDescriptor, summarizeCell } from './api';
+import {
+  ICellDescriptor,
+  ISuggestion,
+  ITreeNode,
+  summarizeCell,
+  suggestNextSteps
+} from './api';
 
 // Tree 中 node summary 的两种显示方式：固定显示或 hover 悬浮显示。
 type SummaryDisplayMode = 'fixed' | 'hover';
@@ -17,6 +23,13 @@ class AIAssistantPanel extends Widget {
   //添加serversetting方便之后调用 summarizeCell(this.serverSettings, cell)
   private serverSettings: ServerConnection.ISettings;
   private summaries = new Map<string, string>();
+
+  //AI next button 需要的 suggestions 数据结构，key 是 cellId，value 是对应的建议列表。
+  private suggestions = new Map<string, ISuggestion[]>();
+  private pendingSuggestionCellID = '';
+  private statusMessage = '';
+
+
 
   // 保存用户当前选择的 summary 显示模式，重新渲染 tree 时保持一致。
   private summaryDisplayMode: SummaryDisplayMode = 'fixed';
@@ -122,6 +135,9 @@ class AIAssistantPanel extends Widget {
           Open a notebook and click refresh.
         </div>
 
+        <div id="ai-assistant-status" class="jp-ai-assistant-status">
+          ${this.escapeHtml(this.statusMessage || 'Ready.')}
+        </div>
 
         <h3>Next-step Suggestions</h3>
         <ul>
@@ -189,6 +205,7 @@ class AIAssistantPanel extends Widget {
   // 读取 notebook，刷新基本信息、cell summary 列表和可视化 tree。
   private updateNotebookInfo(): void {
     const current = this.notebookTracker.currentWidget;
+    this.updateStatusMessage();
 
     const notebookInfo = this.node.querySelector(
       '#notebook-info'
@@ -326,6 +343,17 @@ class AIAssistantPanel extends Widget {
           }
         };
       });
+
+    // 给每个 cell 添加 AI next button。
+    this.attachAInextButtons();
+  }
+
+  private updateStatusMessage(): void {
+    const status = this.node.querySelector('#ai-assistant-status') as HTMLElement;
+
+    if (status) {
+      status.textContent = this.statusMessage || 'Ready.';
+    }
   }
 
   // notebook 中选中 cell 后，自动把侧边栏 tree 中对应 node 滚动到可见区域。
@@ -429,6 +457,99 @@ class AIAssistantPanel extends Widget {
     }
     this.updateNotebookInfo();
   }
+
+
+  //AI next button：给当前notebook的每个cell旁边添加一个AInext按钮
+  private attachAInextButtons(): void {
+    const current = this.notebookTracker.currentWidget;
+
+    if (!current) { return; }
+
+    window.setTimeout(
+      () => {
+        current.content.widgets.forEach(
+          (cellWidget, index) => {
+            const cellNode = cellWidget.node;
+            cellNode.classList.add('jp-ai-assistant-cell-with-ai-next');
+
+            let button = cellNode.querySelector(
+              '.jp-ai-assistant-ai-next-button'
+            ) as HTMLButtonElement | null;
+
+            if (!button) {
+              button = document.createElement('button');
+              button.className = 'jp-ai-assistant-ai-next-button';
+              button.type = 'button';
+              button.textContent = 'AI Next';
+              button.dataset.lmSuppressShortcuts = 'true';
+              cellNode.appendChild(button);
+            }
+
+            const cells = this.getCurrentCells();
+            const cell = cells[index];
+            button.disabled =
+              !!cell && this.pendingSuggestionCellID === cell.cellId;
+
+            button.onmousedown = event => {
+              event.preventDefault();
+              event.stopPropagation();
+            };
+
+            button.onclick = event => {
+              event.preventDefault();
+              event.stopPropagation();
+
+              void this.requestSuggestionsForCell(current, index);
+            }
+          }
+        )
+      }
+    )
+  }
+  //点击AI next button后的逻辑
+  private async requestSuggestionsForCell(
+    panel: NotebookPanel,
+    cellIndex: number
+  ): Promise<void> {
+    const cells = this.getCurrentCells();//获取notebooks中所有cell信息
+    const selectedCell = cells[cellIndex];//获取点击的cell信息
+
+    if (!selectedCell) {
+      return;
+    }
+
+    this.pendingSuggestionCellID = selectedCell.cellId;
+    this.statusMessage = `Generating next-step suggestion for cell ${cellIndex}.`;
+    this.updateNotebookInfo();
+
+
+    const cellsWithSummaries = cells.map(cells => (
+      {
+        ...cells,
+        summary: this.summaries.get(cells.cellId)
+      }));
+
+    const tree: ITreeNode[] = cellsWithSummaries.map(cell => ({
+      id: cell.cellId,
+      cellIndex: cell.cellIndex,
+      cellType: cell.cellType,
+      summary: cell.summary
+    }));
+
+    const response = await suggestNextSteps(this.serverSettings, selectedCell, {
+      previousCells: cellsWithSummaries.slice(0, cellIndex),
+      nextCells: cellsWithSummaries.slice(cellIndex + 1),
+      tree
+    });
+
+    this.suggestions.set(selectedCell.cellId, response.suggestions);
+    const savedSuggestions = this.suggestions.get(selectedCell.cellId) ?? [];
+    this.pendingSuggestionCellID = '';
+    this.statusMessage = `Generated ${savedSuggestions.length} suggestions for cell ${cellIndex}.`;
+    this.updateNotebookInfo();
+
+  }
+
 
   private escapeHtml(text: string): string {
     return text

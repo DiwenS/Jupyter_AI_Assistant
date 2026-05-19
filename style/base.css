@@ -273,3 +273,32 @@ Fixed 固定显示，Hover 悬浮显示。 */
 .jp-ai-assistant-tree-node-button:focus .jp-ai-assistant-tree-node-tooltip {
   display: block;
 }
+
+/* AI next */
+.jp-ai-assistant-cell-with-ai-next {
+  position: relative;
+}
+
+.jp-ai-assistant-ai-next-button {
+  background: var(--jp-brand-color1);
+  border: 1px solid var(--jp-brand-color1);
+  border-radius: 3px;
+  color: var(--jp-ui-inverse-font-color1);
+  cursor: pointer;
+  font-family: var(--jp-ui-font-family);
+  font-size: 11px;
+  min-height: 24px;
+  opacity: 0.88;
+  padding: 2px 6px;
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 5;
+}
+
+.jp-ai-assistant-ai-next-button:hover,
+.jp-ai-assistant-ai-next-button:focus {
+  background: var(--jp-brand-color0);
+  outline: none;
+}
