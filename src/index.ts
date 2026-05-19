@@ -2,6 +2,7 @@ import {
   JupyterFrontEnd,
   JupyterFrontEndPlugin
 } from '@jupyterlab/application';
+import type * as nbformat from '@jupyterlab/nbformat';
 
 import { INotebookTracker, NotebookPanel } from '@jupyterlab/notebook';
 import { Widget } from '@lumino/widgets';
@@ -12,11 +13,21 @@ import {
   ISuggestion,
   ITreeNode,
   summarizeCell,
-  suggestNextSteps
+  suggestNextSteps,
+  selectSuggestion
 } from './api';
 
 // Tree 中 node summary 的两种显示方式：固定显示或 hover 悬浮显示。
 type SummaryDisplayMode = 'fixed' | 'hover';
+type GeneratedCellType = 'code' | 'markdown' | 'raw';
+type IGeneratedCellData = (
+  | Partial<nbformat.ICodeCell>
+  | Partial<nbformat.IMarkdownCell>
+  | Partial<nbformat.IRawCell>
+) & {
+  cell_type: GeneratedCellType;
+  source: string;
+};
 
 class AIAssistantPanel extends Widget {
   private notebookTracker: INotebookTracker;
@@ -28,7 +39,9 @@ class AIAssistantPanel extends Widget {
   private suggestions = new Map<string, ISuggestion[]>();
   private pendingSuggestionCellID = '';
   private statusMessage = '';
-
+  // selected/generated suggestion state uses sourceCellId + suggestionId as key.
+  private generatedSuggestions = new Map<string, ISuggestion>(); // 储存后端返回的带真实 content 的 suggestion
+  private generatedCellIds = new Map<string, string>(); // source cellId + suggestionId -> generated child cell id
 
 
   // 保存用户当前选择的 summary 显示模式，重新渲染 tree 时保持一致。
@@ -609,6 +622,23 @@ class AIAssistantPanel extends Widget {
           option.className = 'jp-ai-assistant-suggestion-option';
           option.dataset.lmSuppressShortcuts = 'true';
 
+
+          if (this.generatedCellIds.has(this.createSuggestionKey(cell.cellId, suggestion.id))) {
+            option.classList.add('jp-ai-assistant-suggestion-option-selected');
+          }
+
+          option.onmousedown = event => {
+            event.preventDefault();
+            event.stopPropagation();
+          };
+
+          // 点击后调用 selectSuggestionForCell()
+          option.onclick = event => {
+            event.preventDefault();
+            event.stopPropagation();
+            void this.selectSuggestionForCell(cell, suggestion);
+          };
+
           const optionTitle = document.createElement('strong');
           optionTitle.textContent = suggestion.title;
           option.appendChild(optionTitle);
@@ -622,6 +652,159 @@ class AIAssistantPanel extends Widget {
         });
       });
     }, 0);
+  }
+
+  private async selectSuggestionForCell(
+    cell: ICellDescriptor,
+    suggestion: ISuggestion
+  ): Promise<void> {
+    const suggestionKey = this.createSuggestionKey(cell.cellId, suggestion.id);
+    this.pendingSuggestionCellID = cell.cellId;
+    this.statusMessage = `Generating content for ${suggestion.id}.`;
+    this.updateNotebookInfo();
+
+    const response = await selectSuggestion(
+      this.serverSettings,
+      cell,
+      suggestion
+    );
+
+    this.generatedSuggestions.set(suggestionKey, response.suggestion);
+    await this.createOrUpdateGeneratedCell(cell, response.suggestion);
+    this.pendingSuggestionCellID = '';
+    this.statusMessage = response.message;
+    this.updateNotebookInfo();
+  }
+
+  private async createOrUpdateGeneratedCell(
+    sourceCell: ICellDescriptor,
+    suggestion: ISuggestion
+  ): Promise<void> {
+    const current = this.notebookTracker.currentWidget;
+    const model = current?.content.model;
+
+    if (!current || !model) {
+      return;
+    }
+
+    const cellData = this.createGeneratedCellData(suggestion);
+    const suggestionKey = this.createSuggestionKey(
+      sourceCell.cellId,
+      suggestion.id
+    );
+    const existingGeneratedCellId = this.generatedCellIds.get(suggestionKey);
+    const existingGeneratedCellIndex = existingGeneratedCellId
+      ? this.findCellIndexByCellId(current, existingGeneratedCellId)
+      : -1;
+
+    let targetIndex = existingGeneratedCellIndex;
+
+    if (existingGeneratedCellIndex >= 0) {
+      model.sharedModel.deleteCell(existingGeneratedCellIndex);
+    } else {
+      const sourceCellIndex = this.findCellIndexByCellId(
+        current,
+        sourceCell.cellId
+      );
+
+      if (sourceCellIndex < 0) {
+        return;
+      }
+
+      targetIndex = this.findGeneratedCellInsertIndex(current, sourceCell);
+    }
+
+    const insertedCell = model.sharedModel.insertCell(targetIndex, cellData);
+    const insertedCellId = `${current.context.path}:${insertedCell.getId()}`;
+    this.generatedCellIds.set(suggestionKey, insertedCellId);
+
+    current.content.activeCellIndex = targetIndex;
+    current.activate();
+    current.content.activate();
+    await current.content.scrollToItem(targetIndex, 'center');
+  }
+
+  private createSuggestionKey(cellId: string, suggestionId: string): string {
+    return `${cellId}::${suggestionId}`;
+  }
+
+  private findGeneratedCellInsertIndex(
+    panel: NotebookPanel,
+    sourceCell: ICellDescriptor
+  ): number {
+    const sourceCellIndex = this.findCellIndexByCellId(panel, sourceCell.cellId);
+
+    if (sourceCellIndex < 0) {
+      return 0;
+    }
+
+    let insertIndex = sourceCellIndex + 1;
+
+    this.generatedCellIds.forEach((generatedCellId, suggestionKey) => {
+      if (!suggestionKey.startsWith(`${sourceCell.cellId}::`)) {
+        return;
+      }
+
+      const generatedCellIndex = this.findCellIndexByCellId(
+        panel,
+        generatedCellId
+      );
+
+      if (generatedCellIndex >= insertIndex) {
+        insertIndex = generatedCellIndex + 1;
+      }
+    });
+
+    return insertIndex;
+  }
+
+  private createGeneratedCellData(suggestion: ISuggestion): IGeneratedCellData {
+    const cellType = this.normalizeGeneratedCellType(suggestion.cellType);
+    const baseCell = {
+      cell_type: cellType,
+      source: suggestion.content,
+      metadata: {
+        ai_assistant_generated: true,
+        ai_assistant_suggestion_id: suggestion.id
+      }
+    };
+
+    if (cellType === 'code') {
+      return {
+        ...baseCell,
+        outputs: [],
+        execution_count: null
+      };
+    }
+
+    return baseCell;
+  }
+
+  private normalizeGeneratedCellType(cellType: string): GeneratedCellType {
+    if (cellType === 'markdown' || cellType === 'raw') {
+      return cellType;
+    }
+
+    return 'code';
+  }
+
+  private findCellIndexByCellId(panel: NotebookPanel, cellId: string): number {
+    const model = panel.content.model;
+
+    if (!model) {
+      return -1;
+    }
+
+    for (let index = 0; index < model.cells.length; index++) {
+      const cell = model.cells.get(index);
+      const currentCellId = `${panel.context.path}:${cell.id}`;
+
+      if (currentCellId === cellId) {
+        return index;
+      }
+    }
+
+    return -1;
   }
 
   private escapeHtml(text: string): string {

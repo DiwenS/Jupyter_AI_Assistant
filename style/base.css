@@ -349,3 +349,8 @@ Fixed 固定显示，Hover 悬浮显示。 */
   font-size: var(--jp-ui-font-size1);
   line-height: 1.35;
 }
+
+.jp-ai-assistant-suggestion-option-selected {
+  border-color: var(--jp-brand-color1);
+  box-shadow: inset 3px 0 0 var(--jp-brand-color1);
+}
