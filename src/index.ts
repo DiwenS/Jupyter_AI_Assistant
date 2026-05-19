@@ -43,14 +43,13 @@ class AIAssistantPanel extends Widget {
   private generatedSuggestions = new Map<string, ISuggestion>(); // 储存后端返回的带真实 content 的 suggestion
   private generatedCellIds = new Map<string, string>(); // source cellId + suggestionId -> generated child cell id
 
-
   // 保存用户当前选择的 summary 显示模式，重新渲染 tree 时保持一致。
   private summaryDisplayMode: SummaryDisplayMode = 'fixed';
   // 保存 tree 的缩放比例，1 表示 100%。
   private treeZoom = 1;
 
-
-  constructor(notebookTracker: INotebookTracker,
+  constructor(
+    notebookTracker: INotebookTracker,
     serverSettings: ServerConnection.ISettings
   ) {
     super();
@@ -63,7 +62,6 @@ class AIAssistantPanel extends Widget {
     this.title.caption = 'AI Notebook Assistant';
     this.title.closable = true;
     this.title.iconClass = 'jp-SideBar-tabIcon jp-SettingsIcon';
-
 
     this.render();
 
@@ -214,7 +212,6 @@ class AIAssistantPanel extends Widget {
     this.updateTreeZoomControls();
   }
 
-
   // 读取 notebook，刷新基本信息、cell summary 列表和可视化 tree。
   private updateNotebookInfo(): void {
     const current = this.notebookTracker.currentWidget;
@@ -226,7 +223,9 @@ class AIAssistantPanel extends Widget {
 
     const cellList = this.node.querySelector('#cell-list') as HTMLElement;
 
-    const notebookTree = this.node.querySelector('#notebook-tree') as HTMLElement;
+    const notebookTree = this.node.querySelector(
+      '#notebook-tree'
+    ) as HTMLElement;
 
     if (!current) {
       notebookInfo.innerHTML = 'No active notebook found.';
@@ -286,7 +285,9 @@ class AIAssistantPanel extends Widget {
     ): string => {
       const normalizedCellType = cellType.toLowerCase();
       const activeClass =
-        cellIndex === activeCellIndex ? ' jp-ai-assistant-tree-node-active' : '';
+        cellIndex === activeCellIndex
+          ? ' jp-ai-assistant-tree-node-active'
+          : '';
       const generatedClass = isGenerated
         ? ' jp-ai-assistant-tree-node-generated'
         : '';
@@ -299,15 +300,15 @@ class AIAssistantPanel extends Widget {
       const fixedSummaryMarkup =
         this.summaryDisplayMode === 'fixed'
           ? `<div class="jp-ai-assistant-tree-node-summary-fixed">${this.escapeHtml(
-            summary
-          )}</div>`
+              summary
+            )}</div>`
           : '';
       // Hover 模式：summary 作为 tooltip，鼠标悬浮或键盘 focus 时显示。
       const hoverSummaryMarkup =
         this.summaryDisplayMode === 'hover'
           ? `<div class="jp-ai-assistant-tree-node-tooltip">${this.escapeHtml(
-            summary
-          )}</div>`
+              summary
+            )}</div>`
           : '';
 
       return `
@@ -459,7 +460,9 @@ class AIAssistantPanel extends Widget {
   }
 
   private updateStatusMessage(): void {
-    const status = this.node.querySelector('#ai-assistant-status') as HTMLElement;
+    const status = this.node.querySelector(
+      '#ai-assistant-status'
+    ) as HTMLElement;
 
     if (status) {
       status.textContent = this.statusMessage || 'Ready.';
@@ -496,7 +499,9 @@ class AIAssistantPanel extends Widget {
 
   // 同步缩放按钮状态和当前百分比显示。
   private updateTreeZoomControls(): void {
-    const zoomValue = this.node.querySelector('#tree-zoom-value') as HTMLElement;
+    const zoomValue = this.node.querySelector(
+      '#tree-zoom-value'
+    ) as HTMLElement;
     const zoomOutButton = this.node.querySelector(
       '#tree-zoom-out'
     ) as HTMLButtonElement;
@@ -522,7 +527,12 @@ class AIAssistantPanel extends Widget {
     const current = this.notebookTracker.currentWidget;
     const model = current?.content.model;
 
-    if (!current || !model || cellIndex < 0 || cellIndex >= model.cells.length) {
+    if (
+      !current ||
+      !model ||
+      cellIndex < 0 ||
+      cellIndex >= model.cells.length
+    ) {
       return;
     }
 
@@ -568,69 +578,68 @@ class AIAssistantPanel extends Widget {
     this.updateNotebookInfo();
   }
 
-
   //AI next button：给当前notebook的每个cell旁边添加一个AInext按钮
   private attachAInextButtons(): void {
     const current = this.notebookTracker.currentWidget;
 
-    if (!current) { return; }
+    if (!current) {
+      return;
+    }
 
-    window.setTimeout(
-      () => {
-        current.content.widgets.forEach(
-          (cellWidget, index) => {
-            const cellNode = cellWidget.node;
-            cellNode.classList.add('jp-ai-assistant-cell-with-ai-next');
-            const buttonHost =
-              (cellNode.querySelector('.jp-Cell-inputWrapper') as HTMLElement | null) ??
-              (cellNode.querySelector('.jp-InputArea') as HTMLElement | null) ??
-              cellNode;
-            buttonHost.classList.add('jp-ai-assistant-ai-next-host');
+    window.setTimeout(() => {
+      current.content.widgets.forEach((cellWidget, index) => {
+        const cellNode = cellWidget.node;
+        cellNode.classList.add('jp-ai-assistant-cell-with-ai-next');
+        const buttonHost =
+          (cellNode.querySelector(
+            '.jp-Cell-inputWrapper'
+          ) as HTMLElement | null) ??
+          (cellNode.querySelector('.jp-InputArea') as HTMLElement | null) ??
+          cellNode;
+        buttonHost.classList.add('jp-ai-assistant-ai-next-host');
 
-            let button = cellNode.querySelector(
-              '.jp-ai-assistant-ai-next-button'
-            ) as HTMLButtonElement | null;
+        let button = cellNode.querySelector(
+          '.jp-ai-assistant-ai-next-button'
+        ) as HTMLButtonElement | null;
 
-            if (!button) {
-              button = document.createElement('button');
-              button.className = 'jp-ai-assistant-ai-next-button';
-              button.type = 'button';
-              button.textContent = 'AI Next';
-              button.dataset.lmSuppressShortcuts = 'true';
-            }
+        if (!button) {
+          button = document.createElement('button');
+          button.className = 'jp-ai-assistant-ai-next-button';
+          button.type = 'button';
+          button.textContent = 'AI Next';
+          button.dataset.lmSuppressShortcuts = 'true';
+        }
 
-            if (button.parentElement !== buttonHost) {
-              buttonHost.appendChild(button);
-            }
+        if (button.parentElement !== buttonHost) {
+          buttonHost.appendChild(button);
+        }
 
-            const cells = this.getCurrentCells();
-            const cell = cells[index];
-            button.disabled =
-              !!cell && this.pendingSuggestionCellID === cell.cellId;
+        const cells = this.getCurrentCells();
+        const cell = cells[index];
+        button.disabled =
+          !!cell && this.pendingSuggestionCellID === cell.cellId;
 
-            button.onmousedown = event => {
-              event.preventDefault();
-              event.stopPropagation();
-            };
+        button.onmousedown = event => {
+          event.preventDefault();
+          event.stopPropagation();
+        };
 
-            button.onclick = event => {
-              event.preventDefault();
-              event.stopPropagation();
+        button.onclick = event => {
+          event.preventDefault();
+          event.stopPropagation();
 
-              void this.requestSuggestionsForCell(current, index);
-            }
-          }
-        )
-      }
-    )
+          void this.requestSuggestionsForCell(current, index);
+        };
+      });
+    });
   }
   //点击AI next button后的逻辑
   private async requestSuggestionsForCell(
     panel: NotebookPanel,
     cellIndex: number
   ): Promise<void> {
-    const cells = this.getCurrentCells();//获取notebooks中所有cell信息
-    const selectedCell = cells[cellIndex];//获取点击的cell信息
+    const cells = this.getCurrentCells(); //获取notebooks中所有cell信息
+    const selectedCell = cells[cellIndex]; //获取点击的cell信息
 
     if (!selectedCell) {
       return;
@@ -640,12 +649,10 @@ class AIAssistantPanel extends Widget {
     this.statusMessage = `Generating next-step suggestion for cell ${cellIndex}.`;
     this.updateNotebookInfo();
 
-
-    const cellsWithSummaries = cells.map(cells => (
-      {
-        ...cells,
-        summary: this.summaries.get(cells.cellId)
-      }));
+    const cellsWithSummaries = cells.map(cells => ({
+      ...cells,
+      summary: this.summaries.get(cells.cellId)
+    }));
 
     const tree: ITreeNode[] = cellsWithSummaries.map(cell => ({
       id: cell.cellId,
@@ -665,7 +672,6 @@ class AIAssistantPanel extends Widget {
     this.pendingSuggestionCellID = '';
     this.statusMessage = `Generated ${savedSuggestions.length} suggestions for cell ${cellIndex}.`;
     this.updateNotebookInfo();
-
   }
   //显示具体的suggestions
   private syncCellSuggestions(): void {
@@ -716,8 +722,11 @@ class AIAssistantPanel extends Widget {
           option.className = 'jp-ai-assistant-suggestion-option';
           option.dataset.lmSuppressShortcuts = 'true';
 
-
-          if (this.generatedCellIds.has(this.createSuggestionKey(cell.cellId, suggestion.id))) {
+          if (
+            this.generatedCellIds.has(
+              this.createSuggestionKey(cell.cellId, suggestion.id)
+            )
+          ) {
             option.classList.add('jp-ai-assistant-suggestion-option-selected');
           }
 
@@ -738,7 +747,8 @@ class AIAssistantPanel extends Widget {
           option.appendChild(optionTitle);
 
           const optionDescription = document.createElement('span');
-          optionDescription.className = 'jp-ai-assistant-suggestion-description';
+          optionDescription.className =
+            'jp-ai-assistant-suggestion-description';
           optionDescription.textContent = suggestion.description;
           option.appendChild(optionDescription);
 
@@ -846,7 +856,10 @@ class AIAssistantPanel extends Widget {
 
       const parentCellId = `${current.context.path}:${parentRawCellId}`;
       const generatedCellId = `${current.context.path}:${cell.id}`;
-      const suggestionKey = this.createSuggestionKey(parentCellId, suggestionId);
+      const suggestionKey = this.createSuggestionKey(
+        parentCellId,
+        suggestionId
+      );
       const suggestionTitle =
         typeof metadata.ai_assistant_suggestion_title === 'string'
           ? metadata.ai_assistant_suggestion_title
@@ -877,7 +890,10 @@ class AIAssistantPanel extends Widget {
     panel: NotebookPanel,
     sourceCell: ICellDescriptor
   ): number {
-    const sourceCellIndex = this.findCellIndexByCellId(panel, sourceCell.cellId);
+    const sourceCellIndex = this.findCellIndexByCellId(
+      panel,
+      sourceCell.cellId
+    );
 
     if (sourceCellIndex < 0) {
       return 0;

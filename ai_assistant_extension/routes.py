@@ -50,6 +50,7 @@ class SummarizeCellHandler(APIHandler):
         }))
 """
 
+# 生成summary
 class SummarizeCellHandler(APIHandler):
     @tornado.web.authenticated
     def post(self):
@@ -66,7 +67,7 @@ class SummarizeCellHandler(APIHandler):
         if not cell_source:
             cell_source = data.get("cell_source", "")
 
-        summary = summarize_cell(cell_source)
+        summary = summarize_cell(cell_index)
 
         self.finish(json.dumps({
             "status": "success",
@@ -100,6 +101,7 @@ class SuggestNextStepsHandler(APIHandler):
         }))
 """
 
+# 给出suggestions(按钮)
 class SuggestNextStepsHandler(APIHandler):
     @tornado.web.authenticated
     def post(self):
@@ -115,7 +117,7 @@ class SuggestNextStepsHandler(APIHandler):
         if not cell_source:
             cell_source = data.get("cell_source", "")
 
-        raw_suggestions = suggest_next_cell(cell_source)
+        raw_suggestions = suggest_next_cell(selected_cell.get("cellIndex"))
 
         suggestions = []
         for index, suggestion in enumerate(raw_suggestions):
@@ -139,6 +141,7 @@ class SuggestNextStepsHandler(APIHandler):
             }
         }))
 
+# 根据suggestion生成cell content
 # 返回更新后的suggestion,主要是该suggestion的content
 # TODO: 目前更新的content是假的，后续需要接入真正的生成逻辑。或者后端新建一个函数
 class SelectSuggestionHandler(APIHandler):

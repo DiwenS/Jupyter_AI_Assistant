@@ -1,2 +1,2 @@
-def summarize_cell(cell_source):
-    return f"This is a FAKE summary of cell {cell_source}"
+def summarize_cell(cell_index):
+    return f"This is a FAKE summary of cell {cell_index}"
