@@ -67,7 +67,7 @@ class SummarizeCellHandler(APIHandler):
         if not cell_source:
             cell_source = data.get("cell_source", "")
 
-        summary = summarize_cell(cell_index)
+        summary = summarize_cell(cell_source, context={})  # TODO: pass actual context
 
         self.finish(json.dumps({
             "status": "success",
