@@ -7,8 +7,6 @@ from ai_assistant_extension.prompts import build_summary_prompt, build_suggestio
 # def suggest_next_cell(cellIndex):
 #     return [f'FAKE suggestion1 for cell {cellIndex}', 'FAKE suggestion2', 'FAKE suggestion3']
 
-# FIXME: 模型有时候返回空内容 - ERROR
-
 def suggest_next_cell(selected_cell_source, context):
     print("============= AI suggesting =============")
     print("== suggestion input ==")
@@ -21,6 +19,10 @@ def suggest_next_cell(selected_cell_source, context):
     response = generate(message)
     print("[LOG] Raw AI response:")
     print(response)
+
+    if not response:
+        print("[ERROR] Empty response from AI model.")
+        return ["No AI suggestions generated"]
 
     if isinstance(response, str):
         response = json.loads(response)
