@@ -117,7 +117,7 @@ class SuggestNextStepsHandler(APIHandler):
         if not cell_source:
             cell_source = data.get("cell_source", "")
 
-        raw_suggestions = suggest_next_cell(selected_cell.get("cellIndex"))
+        raw_suggestions = suggest_next_cell(cell_source, context = {})  # TODO: pass actual context
 
         suggestions = []
         for index, suggestion in enumerate(raw_suggestions):

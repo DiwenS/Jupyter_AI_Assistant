@@ -8,13 +8,13 @@ from ai_assistant_extension.llm_client import generate
 # def summarize_cell(cell_index):
 #     return f"This is a FAKE summary of cell {cell_index}"
 
-def summarize_cell(selected_cell, context):
-    print("============= 开始使用AI进行总结 =============")
-    message = build_summary_prompt(selected_cell, context)
+def summarize_cell(selected_cell_source, context):
+    print("============= AI summarizing =============")
+    message = build_summary_prompt(selected_cell_source, context)
     response = generate(message)
     print(response)
 
     if isinstance(response, str):
         response = json.loads(response)
 
-    return response.get("summary", "No summary generated")
+    return response.get("summary", "No AI summary generated")
