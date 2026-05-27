@@ -17,7 +17,7 @@ def suggest_next_cell(selected_cell_source, context):
 
     message = build_suggestions_prompt(selected_cell_source, context)
     response = generate(message)
-    print("[LOG] Raw AI response:")
+    print("[LOG-sug] Raw AI response:")
     print(response)
 
     if not response:

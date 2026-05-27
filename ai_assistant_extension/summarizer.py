@@ -12,7 +12,12 @@ def summarize_cell(selected_cell_source, context):
     print("============= AI summarizing =============")
     message = build_summary_prompt(selected_cell_source, context)
     response = generate(message)
+    print("[LOG-sum] Raw AI response:")
     print(response)
+
+    if not response:
+        print("[ERROR] Empty response from AI model.")
+        return ["No AI summary generated"]
 
     if isinstance(response, str):
         response = json.loads(response)
