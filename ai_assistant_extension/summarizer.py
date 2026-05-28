@@ -21,5 +21,8 @@ def summarize_cell(selected_cell_source):
 
     if isinstance(response, str):
         response = json.loads(response)
+        # print("⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️response⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️")
+        # print(response)
 
-    return response.get("summary", "No AI summary generated")
+    # return response.get("summary", "No AI summary generated")
+    return response
