@@ -33,18 +33,22 @@ def build_summary_prompt(
     system_prompt = """
 You are an expert Jupyter notebook assistant.
 
-Your task is to summarize the selected notebook cell.
+Your task is to summarize the selected notebook cell
+and generate a short title for it.
 
 Requirements:
 - Be concise and accurate.
 - Focus on what the code or markdown is doing.
 - Mention important libraries, variables, or analysis goals.
+- Generate a title with no more than 5 words.
+- The title should briefly describe the main purpose of the cell.
 - Return ONLY valid JSON.
 - Do not include markdown.
 - Do not include explanations outside JSON.
 
 Expected JSON format:
 {
+  "title": "...",
   "summary": "..."
 }
 """
@@ -77,25 +81,50 @@ SELECTED CELL:
 
 def build_suggestions_prompt(
         selected_cell: str,
-        context: Dict,
+        previous_context: Dict,
+        next_context: Dict,
 ) -> List[Dict[str, str]]:
     """
     Build prompt for next-cell suggestions.
     """
 
-    context_text = _format_context(context)
+    previous_context_text = _format_context(previous_context)
+    next_context_text = _format_context(next_context)
+    print("============= Building Suggestions Prompt =============")
+    print(previous_context_text)
+    print("=" * 45)
+    print(next_context_text)
+    print("=" * 45)
 
     system_prompt = """
 You are an expert data science and Jupyter notebook assistant.
 
-Your task is to suggest the next reasonable notebook steps.
+Your task is to suggest the next reasonable actions
+or notebook steps for the CURRENT SELECTED CELL.
+
+You are given:
+- Previous notebook context:
+  cells that appear before the selected cell.
+- Next notebook context:
+  cells that appear after the selected cell.
+
+Use both contexts to understand:
+- the notebook workflow,
+- completed analysis steps,
+- upcoming analysis intentions,
+- and the role of the selected cell.
 
 Suggestions should:
-- Follow the current notebook workflow.
+- Focus on what should reasonably happen next
+  after the CURRENT SELECTED CELL.
 - Be technically meaningful.
-- Avoid repeating completed steps.
-- Prioritize useful analysis or debugging actions.
-
+- Follow the notebook workflow.
+- Avoid repeating already completed steps.
+- Avoid suggesting steps already implemented
+  in the next context unless refinement is useful.
+- Prioritize useful analysis, debugging,
+  visualization, or data-processing actions.
+  
 Return ONLY valid JSON.
 
 Expected JSON format:
@@ -109,11 +138,14 @@ Expected JSON format:
 """
 
     user_prompt = f"""
-NOTEBOOK CONTEXT:
-{context_text}
+PREVIOUS CONTEXT:
+{previous_context_text}
 
 CURRENT SELECTED CELL:
 {selected_cell}
+
+NEXT CONTEXT:
+{next_context_text}
 """
 
     return [

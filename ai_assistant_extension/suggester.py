@@ -7,19 +7,21 @@ from ai_assistant_extension.prompts import build_summary_prompt, build_suggestio
 # def suggest_next_cell(cellIndex):
 #     return [f'FAKE suggestion1 for cell {cellIndex}', 'FAKE suggestion2', 'FAKE suggestion3']
 
-def suggest_next_cell(selected_cell_source, context):
+def suggest_next_cell(selected_cell_source, previous_context, next_context):
     print("============= AI suggesting =============")
     print("== suggestion input ==")
     print("⬇️ Selected Cell Source ⬇️")
     print(selected_cell_source)
-    print("⬇️ Context ⬇️")
-    print(context)
+    print("⬇️ Previous Context ⬇️")
+    print(previous_context)
+    print("⬇️ Next Context ⬇️")
+    print(next_context)
     print("=" * 45)
 
     USE_OLLAMA = True
 
     if USE_OLLAMA:
-        message = build_suggestions_prompt(selected_cell_source, context)
+        message = build_suggestions_prompt(selected_cell_source, previous_context, next_context)
         response = generate(message)
     else:
         response = {
