@@ -67,7 +67,7 @@ class SummarizeCellHandler(APIHandler):
         if not cell_source:
             cell_source = data.get("cell_source", "")
 
-        summary = summarize_cell(cell_source, context={})  # TODO: pass actual context
+        summary = summarize_cell(cell_source)
 
         self.finish(json.dumps({
             "status": "success",
@@ -109,6 +109,12 @@ class SuggestNextStepsHandler(APIHandler):
 
         selected_cell = data.get("selectedCell", {})
         context = data.get("context", {})
+        previous_cells = context.get("previousCells", [])
+        next_cells = context.get("nextCells", [])
+
+        previous_sources = [cell.get("source", "") for cell in previous_cells]
+        next_sources = [cell.get("source", "") for cell in next_cells]
+        all_sources = previous_sources + next_sources
 
         # Preferred frontend structure.
         cell_source = selected_cell.get("source", "")
@@ -117,7 +123,7 @@ class SuggestNextStepsHandler(APIHandler):
         if not cell_source:
             cell_source = data.get("cell_source", "")
 
-        raw_suggestions = suggest_next_cell(cell_source, context)
+        raw_suggestions = suggest_next_cell(cell_source, all_sources)
 
         suggestions = []
         for index, suggestion in enumerate(raw_suggestions):

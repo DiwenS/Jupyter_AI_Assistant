@@ -8,9 +8,9 @@ from ai_assistant_extension.llm_client import generate
 # def summarize_cell(cell_index):
 #     return f"This is a FAKE summary of cell {cell_index}"
 
-def summarize_cell(selected_cell_source, context):
+def summarize_cell(selected_cell_source):
     print("============= AI summarizing =============")
-    message = build_summary_prompt(selected_cell_source, context)
+    message = build_summary_prompt(selected_cell_source, context = {})
     response = generate(message)
     print("[LOG-sum] Raw AI response:")
     print(response)

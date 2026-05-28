@@ -1,0 +1,38 @@
+{
+  'previousCells': [],
+  'nextCells':
+  [
+    {'cellId': 'notebooks/small_ancova_process.ipynb:59e0c368', 'cellIndex': 1, 'cellType': 'markdown', 'source': '# 1. 读取数据并检验'},
+    {'cellId': 'notebooks/small_ancova_process.ipynb:323fc1ac-b7bf-4e07-b0cd-81f63a59492e', 'cellIndex': 2, 'cellType': 'code', 'source': 'this is code\nprint'},
+    {'cellId': 'notebooks/small_ancova_process.ipynb:b0832314-ac78-4190-b3c7-ea198fc6f3e3', 'cellIndex': 3, 'cellType': 'markdown', 'source': '# this is markdown'}
+  ],
+  'tree':
+  [
+    {'id': 'notebooks/small_ancova_process.ipynb:d979f569', 'cellIndex': 0, 'cellType': 'code'},
+    {'id': 'notebooks/small_ancova_process.ipynb:59e0c368', 'cellIndex': 1, 'cellType': 'markdown'},
+    {'id': 'notebooks/small_ancova_process.ipynb:323fc1ac-b7bf-4e07-b0cd-81f63a59492e', 'cellIndex': 2, 'cellType': 'code'},
+    {'id': 'notebooks/small_ancova_process.ipynb:b0832314-ac78-4190-b3c7-ea198fc6f3e3', 'cellIndex': 3, 'cellType': 'markdown'}
+  ]
+}
+
+
+// 第二个markdown
+
+{
+  'previousCells':
+  [
+    {'cellId': 'notebooks/small_ancova_process.ipynb:d979f569', 'cellIndex': 0, 'cellType': 'code', 'source': 'import pandas as pd\nimport numpy as np\nfrom scipy import stats\nfrom scipy.stats import shapiro, levene\nimport statsmodels.formula.api as smf\nimport statsmodels.api as sm\nimport matplotlib.pyplot as plt\nimport seaborn as sns\nimport warnings\nimport os'}
+  ],
+  'nextCells':
+  [
+    {'cellId': 'notebooks/small_ancova_process.ipynb:323fc1ac-b7bf-4e07-b0cd-81f63a59492e', 'cellIndex': 2, 'cellType': 'code', 'source': 'this is code\nprint'},
+    {'cellId': 'notebooks/small_ancova_process.ipynb:b0832314-ac78-4190-b3c7-ea198fc6f3e3', 'cellIndex': 3, 'cellType': 'markdown', 'source': '# this is markdown'}
+  ],
+  'tree':
+  [
+    {'id': 'notebooks/small_ancova_process.ipynb:d979f569', 'cellIndex': 0, 'cellType': 'code'},
+    {'id': 'notebooks/small_ancova_process.ipynb:59e0c368', 'cellIndex': 1, 'cellType': 'markdown'},
+    {'id': 'notebooks/small_ancova_process.ipynb:323fc1ac-b7bf-4e07-b0cd-81f63a59492e', 'cellIndex': 2, 'cellType': 'code'},
+    {'id': 'notebooks/small_ancova_process.ipynb:b0832314-ac78-4190-b3c7-ea198fc6f3e3', 'cellIndex': 3, 'cellType': 'markdown'}
+  ]
+}
