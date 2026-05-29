@@ -155,6 +155,10 @@ class SelectSuggestionHandler(APIHandler):
     @tornado.web.authenticated
     def post(self):
         data = self.get_json_body() or {}
+        print("============= Received select-suggestion request =============")
+        print(data)
+
+        # TODO: 需要前端更多内容（previous_cells, next_cells等）来生成更合理的content
 
         selected_suggestion = data.get("selectedSuggestion", {})
 

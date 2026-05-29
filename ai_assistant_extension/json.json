@@ -36,3 +36,26 @@
     {'id': 'notebooks/small_ancova_process.ipynb:b0832314-ac78-4190-b3c7-ea198fc6f3e3', 'cellIndex': 3, 'cellType': 'markdown'}
   ]
 }
+
+
+
+
+// SelectSuggestionHandler
+{
+  'selectedCell':
+  {
+    'cellId': 'notebooks/small_ancova_process.ipynb:d979f569',
+    'cellIndex': 0,
+    'cellType': 'code',
+    'source': 'import pandas as pd\nimport numpy as np\nfrom scipy import stats\nfrom scipy.stats import shapiro, levene\nimport statsmodels.formula.api as smf\nimport statsmodels.api as sm\nimport matplotlib.pyplot as plt\nimport seaborn as sns\nimport warnings\nimport os'
+  },
+  'selectedSuggestion':
+  {'id': 'suggestion-1',
+    'title': 'Load the dataset using pd.read_csv() or similar function',
+    'description': 'Load the dataset using pd.read_csv() or similar function',
+    'cellType': 'code',
+    'content': '# TODO: generate cell content here',
+    'metadata':
+    {'source': 'rule-based'}
+  }
+}
