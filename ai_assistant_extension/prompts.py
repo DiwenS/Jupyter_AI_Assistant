@@ -161,3 +161,53 @@ NEXT CONTEXT:
             "content": user_prompt.strip(),
         },
     ]
+
+
+def build_content_generation_prompt(
+        selected_sug_title: str,
+        selected_sug_desc: str,
+) -> List[Dict[str, str]]:
+    """
+    Build prompt for notebook cell content generation.
+    """
+
+    system_prompt = """
+You are an expert Python data science
+and Jupyter notebook assistant.
+
+Your task is to generate the content
+of a new Jupyter notebook cell
+based on the selected suggestion.
+
+Requirements:
+- Generate executable Python code.
+- Focus on data science and notebook workflows.
+- Write clean, concise, and readable code.
+- Use notebook-style code formatting.
+- Do not include markdown code fences.
+- Do not include explanations outside code.
+- Do not include natural language descriptions.
+- Return ONLY the code content.
+"""
+
+    user_prompt = f"""
+Selected Suggestion Title:
+{selected_sug_title}
+
+Selected Suggestion Description:
+{selected_sug_desc}
+
+Generate the corresponding Jupyter notebook cell content.
+
+"""
+
+    return [
+        {
+            "role": "system",
+            "content": system_prompt.strip(),
+        },
+        {
+            "role": "user",
+            "content": user_prompt.strip(),
+        },
+    ]

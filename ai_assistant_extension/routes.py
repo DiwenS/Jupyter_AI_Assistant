@@ -4,6 +4,7 @@ from jupyter_server.base.handlers import APIHandler
 from jupyter_server.utils import url_path_join
 import tornado
 
+from .sug_content import next_cell_content
 from .summarizer import summarize_cell
 from .suggester import suggest_next_cell
 
@@ -157,11 +158,17 @@ class SelectSuggestionHandler(APIHandler):
 
         selected_suggestion = data.get("selectedSuggestion", {})
 
+        print("[Selected suggestion]")
         print(selected_suggestion)
+
+        selected_sug_title = selected_suggestion.get("title", "")
+        selected_sug_desc = selected_suggestion.get("description", "")
+
+        generated_content = next_cell_content(selected_sug_title, selected_sug_desc)
 
         suggestion = {
             **selected_suggestion,
-            "content": "fake generated code cell1", # todo: change here
+            "content": generated_content,
             "metadata": {
                 "source": "placeholder"
             }
