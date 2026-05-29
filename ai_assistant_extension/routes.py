@@ -157,9 +157,11 @@ class SelectSuggestionHandler(APIHandler):
 
         selected_suggestion = data.get("selectedSuggestion", {})
 
+        print(selected_suggestion)
+
         suggestion = {
             **selected_suggestion,
-            "content": "fake generated code cell",
+            "content": "fake generated code cell1", # todo: change here
             "metadata": {
                 "source": "placeholder"
             }

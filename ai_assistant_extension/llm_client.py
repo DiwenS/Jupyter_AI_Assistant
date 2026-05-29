@@ -55,7 +55,7 @@ LLM_TIMEOUT_S = int(
 )
 
 LLM_MAX_TOKENS = int(
-    os.getenv("AI_ASSISTANT_LLM_MAX_TOKENS", "512")
+    os.getenv("AI_ASSISTANT_LLM_MAX_TOKENS", "2048")
 )
 
 LLM_TEMPERATURE = float(
@@ -109,12 +109,18 @@ def generate(
         },
     }
 
+    print("[LLM] payload size:", len(str(payload)))
+
     try:
         response = requests.post(
             url,
             json=payload,
-            timeout=LLM_TIMEOUT_S,
+            # timeout=LLM_TIMEOUT_S,
         )
+
+        print("[LLM] response code:", response.status_code)
+        print("[LLM] response text:", response.text)
+
     except requests.exceptions.ConnectionError as e:
         raise LLMConnectionError(
             f"Could not connect to LLM service at {LLM_BASE_URL}"

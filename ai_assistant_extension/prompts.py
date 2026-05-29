@@ -46,6 +46,8 @@ Requirements:
 - Do not include markdown.
 - Do not include explanations outside JSON.
 
+Do not think step by step. Provide only the final JSON output.
+
 Expected JSON format:
 {
   "title": "...",
@@ -125,6 +127,7 @@ Suggestions should:
 - Prioritize useful analysis, debugging,
   visualization, or data-processing actions.
   
+Do not think step by step. Provide only the final JSON output.
 Return ONLY valid JSON.
 
 Expected JSON format:

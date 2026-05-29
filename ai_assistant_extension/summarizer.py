@@ -15,6 +15,8 @@ def summarize_cell(selected_cell_source):
     print("[LOG-sum] Raw AI response:")
     print(response)
 
+    # 视情况添加response有效性判断，具体代码见suggesster.py
+
     if not response:
         print("[ERROR] Empty response from AI model.")
         return ["No AI summary generated"]
