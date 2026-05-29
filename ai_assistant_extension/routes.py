@@ -150,7 +150,6 @@ class SuggestNextStepsHandler(APIHandler):
 
 # 根据suggestion生成cell content
 # 返回更新后的suggestion,主要是该suggestion的content
-# TODO: 目前更新的content是假的，后续需要接入真正的生成逻辑。或者后端新建一个函数
 class SelectSuggestionHandler(APIHandler):
     @tornado.web.authenticated
     def post(self):
