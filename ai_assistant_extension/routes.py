@@ -150,6 +150,7 @@ class SuggestNextStepsHandler(APIHandler):
 
 # 根据suggestion生成cell content
 # 返回更新后的suggestion,主要是该suggestion的content
+# 支持用户自定义suggestion
 class SelectSuggestionHandler(APIHandler):
     @tornado.web.authenticated
     def post(self):
@@ -157,23 +158,72 @@ class SelectSuggestionHandler(APIHandler):
         print("============= Received select-suggestion request =============")
         print(data)
 
-        # TODO: 需要前端更多内容（previous_cells, next_cells等）来生成更合理的content
+        selected_cell = data.get("selectedCell", {}) or {}
+        selected_suggestion = data.get("selectedSuggestion", {}) or {}
 
-        selected_suggestion = data.get("selectedSuggestion", {})
+        if not selected_suggestion:
+            self.set_status(400)
+            self.finish(json.dumps({
+                "status": "error",
+                "message": "Missing selectedSuggestion in request."
+            }))
+            return
 
-        print("[Selected suggestion]")
-        print(selected_suggestion)
+        selected_cell_source = selected_cell.get("source", "")
+        selected_cell_type = selected_cell.get("cellType", "code")
 
         selected_sug_title = selected_suggestion.get("title", "")
         selected_sug_desc = selected_suggestion.get("description", "")
 
-        generated_content = next_cell_content(selected_sug_title, selected_sug_desc)
+        metadata = selected_suggestion.get("metadata", {}) or {}
+        suggestion_source = metadata.get("source", "llm")
+
+        # Fallback: if frontend only sends one text field, still use it.
+        if not selected_sug_title:
+            selected_sug_title = selected_suggestion.get("text", "")
+
+        if not selected_sug_desc:
+            selected_sug_desc = selected_sug_title
+
+        if not selected_sug_title and not selected_sug_desc:
+            self.set_status(400)
+            self.finish(json.dumps({
+                "status": "error",
+                "message": "Selected suggestion must contain title or description."
+            }))
+            return
+
+        print("[Selected cell]")
+        print(selected_cell)
+        print("[Selected suggestion]")
+        print(selected_suggestion)
+
+        try:
+            generated_content = next_cell_content(
+                selected_sug_title=selected_sug_title,
+                selected_sug_desc=selected_sug_desc,
+                selected_cell_source=selected_cell_source,
+                selected_cell_type=selected_cell_type,
+                suggestion_source=suggestion_source,
+            )
+        except Exception as e:
+            self.set_status(500)
+            self.finish(json.dumps({
+                "status": "error",
+                "message": f"Failed to generate content for selected suggestion: {str(e)}"
+            }))
+            return
 
         suggestion = {
             **selected_suggestion,
+            "title": selected_sug_title,
+            "description": selected_sug_desc,
+            "cellType": selected_suggestion.get("cellType", "code"),
             "content": generated_content,
             "metadata": {
-                "source": "placeholder"
+                **metadata,
+                "source": suggestion_source,
+                "contentSource": "llm"
             }
         }
 
@@ -182,10 +232,10 @@ class SelectSuggestionHandler(APIHandler):
             "suggestion": suggestion,
             "message": "Generated content for selected suggestion.",
             "metadata": {
-                "source": "placeholder"
+                "source": "llm",
+                "suggestionSource": suggestion_source
             }
         }))
-
 
 def setup_route_handlers(web_app):
     host_pattern = ".*$"

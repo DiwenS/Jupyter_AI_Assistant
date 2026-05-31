@@ -166,39 +166,54 @@ NEXT CONTEXT:
 def build_content_generation_prompt(
         selected_sug_title: str,
         selected_sug_desc: str,
+        selected_cell_source: str = "",
+        selected_cell_type: str = "code",
+        suggestion_source: str = "llm",
 ) -> List[Dict[str, str]]:
     """
     Build prompt for notebook cell content generation.
+
+    This prompt supports both AI-generated suggestions and user-written
+    custom suggestions.
     """
 
     system_prompt = """
-You are an expert Python data science
-and Jupyter notebook assistant.
+You are an expert Python data science and Jupyter notebook assistant.
 
-Your task is to generate the content
-of a new Jupyter notebook cell
-based on the selected suggestion.
+Your task is to generate the content of a new Jupyter notebook cell
+based on a selected next-step suggestion.
+
+The suggestion may come from:
+- the AI assistant, or
+- the user directly.
 
 Requirements:
-- Generate executable Python code.
-- Focus on data science and notebook workflows.
-- Write clean, concise, and readable code.
-- Use notebook-style code formatting.
+- Generate executable Python code unless the requested cell type is markdown.
+- If the request is ambiguous, infer a reasonable next step from the selected cell.
+- Follow the user's suggestion as the main instruction.
+- Keep the generated cell concise and useful.
 - Do not include markdown code fences.
-- Do not include explanations outside code.
-- Do not include natural language descriptions.
-- Return ONLY the code content.
+- Do not include explanations outside the generated cell content.
+- Return ONLY the cell content.
 """
 
     user_prompt = f"""
-Selected Suggestion Title:
+Suggestion source:
+{suggestion_source}
+
+Requested cell type:
+{selected_cell_type}
+
+Selected cell source:
+{selected_cell_source}
+
+Selected suggestion title:
 {selected_sug_title}
 
-Selected Suggestion Description:
+Selected suggestion description:
 {selected_sug_desc}
 
 Generate the corresponding Jupyter notebook cell content.
-
 """
 
     return [
