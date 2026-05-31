@@ -7,6 +7,7 @@ import tornado
 from .sug_content import next_cell_content
 from .summarizer import summarize_cell
 from .suggester import suggest_next_cell
+from .llm_client import get_llm_config, update_llm_config
 
 
 class HelloRouteHandler(APIHandler):
@@ -50,6 +51,45 @@ class SummarizeCellHandler(APIHandler):
             "message": message,
         }))
 """
+
+class LLMConfigHandler(APIHandler):
+    @tornado.web.authenticated
+    def get(self):
+        self.finish(json.dumps({
+            "status": "success",
+            "config": get_llm_config(),
+            "availableProviders": [
+                "ollama",
+                "openai-compatible",
+                "anthropic"
+            ],
+            "message": "Current LLM configuration."
+        }))
+
+    @tornado.web.authenticated
+    def post(self):
+        data = self.get_json_body() or {}
+
+        try:
+            updated_config = update_llm_config(data)
+        except Exception as e:
+            self.set_status(400)
+            self.finish(json.dumps({
+                "status": "error",
+                "message": f"Invalid LLM configuration: {str(e)}"
+            }))
+            return
+
+        self.finish(json.dumps({
+            "status": "success",
+            "config": updated_config,
+            "availableProviders": [
+                "ollama",
+                "openai-compatible",
+                "anthropic"
+            ],
+            "message": "LLM configuration updated."
+        }))
 
 # 生成summary
 class SummarizeCellHandler(APIHandler):
@@ -248,6 +288,9 @@ def setup_route_handlers(web_app):
     health_route_pattern = url_path_join(
         base_url, "ai-assistant-extension", "health"
     )
+    llm_config_route_pattern = url_path_join(
+        base_url, "ai-assistant-extension", "llm-config"
+    )
     suggest_route_pattern = url_path_join(
         base_url, "ai-assistant-extension", "suggest-next-steps"
     )
@@ -259,6 +302,7 @@ def setup_route_handlers(web_app):
     handlers = [
         (hello_route_pattern, HelloRouteHandler),
         (health_route_pattern, HealthHandler),
+        (llm_config_route_pattern, LLMConfigHandler),
         (summarize_route_pattern, SummarizeCellHandler),
         (suggest_route_pattern, SuggestNextStepsHandler),
         (select_suggestion_route_pattern, SelectSuggestionHandler),
