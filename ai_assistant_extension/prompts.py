@@ -226,3 +226,70 @@ Generate the corresponding Jupyter notebook cell content.
             "content": user_prompt.strip(),
         },
     ]
+
+def build_error_fix_prompt(
+        cell_source: str,
+        error_message: str,
+        traceback: str = "",
+        previous_context: Optional[List[Dict]] = None,
+        next_context: Optional[List[Dict]] = None,
+) -> List[Dict[str, str]]:
+    """
+    Build prompt for fixing a failed Jupyter code cell.
+    """
+
+    previous_context = previous_context or []
+    next_context = next_context or []
+
+    previous_context_text = _format_context(previous_context)
+    next_context_text = _format_context(next_context)
+
+    system_prompt = """
+You are an expert Python and Jupyter notebook assistant.
+
+Your task is to fix a code cell that produced an error.
+
+Requirements:
+- Return ONLY the corrected Python code for the cell.
+- Do not include markdown code fences.
+- Do not include explanations outside the code.
+- Preserve the user's original intention as much as possible.
+- Make the smallest reasonable fix.
+- If imports are missing, add only the necessary imports.
+- If the error is NameError or an undefined variable error, inspect the previous notebook context and reuse an existing variable if it clearly matches the user's intention.
+- Example: if the failed code uses df.head() but previous context defines sales = pd.read_csv(...), return sales.head().
+- Do not invent new dataframes, fake file paths, or unrelated variables.
+- Do not return an empty response. If a reasonable fix is possible, return corrected code.
+"""
+
+    user_prompt = f"""
+The following Jupyter notebook code cell failed.
+
+FAILED CELL SOURCE:
+{cell_source}
+
+ERROR MESSAGE:
+{error_message}
+
+TRACEBACK:
+{traceback}
+
+PREVIOUS NOTEBOOK CONTEXT:
+{previous_context_text}
+
+NEXT NOTEBOOK CONTEXT:
+{next_context_text}
+
+Please return the corrected code cell content only.
+"""
+
+    return [
+        {
+            "role": "system",
+            "content": system_prompt.strip(),
+        },
+        {
+            "role": "user",
+            "content": user_prompt.strip(),
+        },
+    ]
