@@ -71,9 +71,21 @@ class AIAssistantPanel extends Widget {
       this.scrollActiveTreeNodeIntoView();
     });
 
-    // 切换 notebook 时重新读取 notebook 信息和 tree。
+    // 切换 notebook 时：等 model 加载完再读缓存。
     this.notebookTracker.currentChanged.connect(() => {
-      this.updateNotebookInfo();
+      this.summaries.clear();
+      this.suggestions.clear();
+
+      const current = this.notebookTracker.currentWidget;
+      if (current) {
+        // context.ready 确保 .ipynb 文件已经从磁盘读入 model
+        void current.context.ready.then(() => {
+          this.loadCacheFromNotebook();
+          this.updateNotebookInfo();
+        });
+      } else {
+        this.updateNotebookInfo();
+      }
     });
   }
 
@@ -90,10 +102,11 @@ class AIAssistantPanel extends Widget {
           Refresh summaries
         </button>
 
+        <button id="clear-cache">
+          Clear cache
+        </button>
 
-
-
-        <hr />
+        <div id="cache-status" style="font-size:12px;margin:4px 0;color:#2196f3;"></div>        <hr />
         
         <h3>Current Notebook</h3>
         <div id="notebook-info">
@@ -175,6 +188,21 @@ class AIAssistantPanel extends Widget {
       void this.refreshSummaries();
     };
 
+    const clearCacheButton = this.node.querySelector(
+      '#clear-cache'
+    ) as HTMLButtonElement;
+
+    clearCacheButton.onclick = () => {
+      this.summaries.clear();
+      this.suggestions.clear();
+      const current = this.notebookTracker.currentWidget;
+      if (current?.content.model) {
+        (current.content.model.sharedModel as any).deleteMetadata('ai_assistant_cache');
+      }
+      this.statusMessage = 'Cache cleared.';
+      this.updateNotebookInfo();
+    };
+
     // 切换 summary 显示方式后，只需要重新渲染 tree，不需要重新请求后端。
     const fixedModeInput = this.node.querySelector(
       '#summary-mode-fixed'
@@ -214,6 +242,7 @@ class AIAssistantPanel extends Widget {
 
   // 读取 notebook，刷新基本信息、cell summary 列表和可视化 tree。
   private updateNotebookInfo(): void {
+    console.log('updateNotebookInfo');
     const current = this.notebookTracker.currentWidget;
     this.updateStatusMessage();
 
@@ -245,6 +274,21 @@ class AIAssistantPanel extends Widget {
     }
 
     this.hydrateGeneratedCellRelations();
+
+    // 更新缓存状态
+    const cacheStatus = this.node.querySelector('#cache-status') as HTMLElement | null;
+    if (cacheStatus) {
+      try {
+        const cacheMeta = (current.content.model as any).sharedModel.getMetadata('ai_assistant_cache');
+        if (cacheMeta && cacheMeta.savedAt) {
+          cacheStatus.textContent = '\u2713 Cache: ' + new Date(cacheMeta.savedAt).toLocaleString();
+        } else {
+          cacheStatus.textContent = 'No cache yet.';
+        }
+      } catch {
+        cacheStatus.textContent = 'No cache yet.';
+      }
+    }
 
     const notebookName = current.context.path;
     const cellCount = model.cells.length;
@@ -567,14 +611,96 @@ class AIAssistantPanel extends Widget {
     return cells;
   }
 
+  // ── 从 notebook metadata 加载缓存 ───────────────────────────────────
+  private loadCacheFromNotebook(): void {
+    const current = this.notebookTracker.currentWidget;
+    const model = current?.content.model;
+    if (!current || !model) {
+      console.log('[AI Assistant] loadCache: no current widget or model');
+      return;
+    }
+
+    let meta: any = null;
+    try {
+      meta = (model.sharedModel as any).getMetadata('ai_assistant_cache');
+    } catch (e) {
+      console.log('[AI Assistant] loadCache: getMetadata failed', e);
+      return;
+    }
+
+    if (!meta) {
+      console.log('[AI Assistant] loadCache: no cache found in metadata');
+      return;
+    }
+
+    const notebookPath = current.context.path;
+    console.log('[AI Assistant] loadCache: found cache, notebookPath =', notebookPath);
+    console.log('[AI Assistant] loadCache: summaries keys =', Object.keys(meta.summaries || {}));
+
+    if (meta.summaries) {
+      for (const [rawCellId, summary] of Object.entries(meta.summaries)) {
+        this.summaries.set(`${notebookPath}:${rawCellId}`, summary as string);
+      }
+    }
+
+    if (meta.suggestions) {
+      for (const [rawCellId, sugs] of Object.entries(meta.suggestions)) {
+        this.suggestions.set(`${notebookPath}:${rawCellId}`, sugs as ISuggestion[]);
+      }
+    }
+
+    console.log('[AI Assistant] Cache loaded! summaries count =', this.summaries.size);
+  }
+
+  // ── 把缓存写入 notebook metadata ──────────────────────────────────────
+  private saveCacheToNotebook(): void {
+    const current = this.notebookTracker.currentWidget;
+    const model = current?.content.model;
+    if (!current || !model) {
+      return;
+    }
+
+    const notebookPath = current.context.path;
+
+    const summariesPlain: Record<string, string> = {};
+    this.summaries.forEach((summary, cellId) => {
+      if (cellId.startsWith(`${notebookPath}:`)) {
+        const rawCellId = this.getRawCellId(cellId);
+        summariesPlain[rawCellId] = summary;
+      }
+    });
+
+    const suggestionsPlain: Record<string, any[]> = {};
+    this.suggestions.forEach((sugs, cellId) => {
+      if (cellId.startsWith(`${notebookPath}:`)) {
+        const rawCellId = this.getRawCellId(cellId);
+        suggestionsPlain[rawCellId] = sugs;
+      }
+    });
+
+    try {
+      (model.sharedModel as any).setMetadata(
+        'ai_assistant_cache',
+        JSON.parse(JSON.stringify({
+          summaries: summariesPlain,
+          suggestions: suggestionsPlain,
+          savedAt: new Date().toISOString()
+        }))
+      );
+      console.log('[AI Assistant] Cache saved to notebook metadata.');
+    } catch (e) {
+      console.error('[AI Assistant] Failed to save cache:', e);
+    }
+  }
+
   private async refreshSummaries(): Promise<void> {
     const cells = this.getCurrentCells();
 
     for (const cell of cells) {
       const response = await summarizeCell(this.serverSettings, cell);
-      //console.log(cell.cellIndex, response.summary);
       this.summaries.set(cell.cellId, response.summary);
     }
+    this.saveCacheToNotebook();
     this.updateNotebookInfo();
   }
 
@@ -671,6 +797,7 @@ class AIAssistantPanel extends Widget {
     const savedSuggestions = this.suggestions.get(selectedCell.cellId) ?? [];
     this.pendingSuggestionCellID = '';
     this.statusMessage = `Generated ${savedSuggestions.length} suggestions for cell ${cellIndex}.`;
+    this.saveCacheToNotebook();
     this.updateNotebookInfo();
   }
   //显示具体的suggestions
@@ -993,7 +1120,7 @@ const plugin: JupyterFrontEndPlugin<void> = {
   requires: [INotebookTracker],
 
   activate: (app: JupyterFrontEnd, notebookTracker: INotebookTracker) => {
-    console.log('AI Assistant Extension activated!');
+    console.log('AI Assistant Extension activated! (v3-ready-fix)');
 
     const panel = new AIAssistantPanel(
       notebookTracker,
