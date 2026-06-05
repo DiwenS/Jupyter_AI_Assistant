@@ -42,6 +42,7 @@ class AIAssistantPanel extends Widget {
   // selected/generated suggestion state uses sourceCellId + suggestionId as key.
   private generatedSuggestions = new Map<string, ISuggestion>(); // 储存后端返回的带真实 content 的 suggestion
   private generatedCellIds = new Map<string, string>(); // source cellId + suggestionId -> generated child cell id
+  private observedPanels = new Set<NotebookPanel>();
 
   // 保存用户当前选择的 summary 显示模式，重新渲染 tree 时保持一致。
   private summaryDisplayMode: SummaryDisplayMode = 'fixed';
@@ -75,9 +76,12 @@ class AIAssistantPanel extends Widget {
     this.notebookTracker.currentChanged.connect(() => {
       this.summaries.clear();
       this.suggestions.clear();
+      this.generatedSuggestions.clear();
+      this.generatedCellIds.clear();
 
       const current = this.notebookTracker.currentWidget;
       if (current) {
+        this.observePanelChanges(current);
         // context.ready 确保 .ipynb 文件已经从磁盘读入 model
         void current.context.ready.then(() => {
           this.loadCacheFromNotebook();
@@ -274,6 +278,7 @@ class AIAssistantPanel extends Widget {
     }
 
     this.hydrateGeneratedCellRelations();
+    this.pruneMissingGeneratedCells();
 
     // 更新缓存状态
     const cacheStatus = this.node.querySelector('#cache-status') as HTMLElement | null;
@@ -511,6 +516,45 @@ class AIAssistantPanel extends Widget {
     if (status) {
       status.textContent = this.statusMessage || 'Ready.';
     }
+  }
+
+  // 监听 notebook 内容变化，同步删除/插入 cell 后的前端状态。
+  private observePanelChanges(panel: NotebookPanel): void {
+    if (this.observedPanels.has(panel)) {
+      return;
+    }
+
+    this.observedPanels.add(panel);
+    panel.content.modelContentChanged.connect(() => {
+      this.pruneMissingGeneratedCells();
+      this.updateNotebookInfo();
+    });
+  }
+
+  // 清理已被用户删除的 generated cell，避免 suggestion 继续误高亮。
+  private pruneMissingGeneratedCells(): void {
+    const current = this.notebookTracker.currentWidget;
+    const model = current?.content.model;
+
+    if (!current || !model) {
+      return;
+    }
+
+    const existingCellIds = new Set<string>();
+
+    for (let index = 0; index < model.cells.length; index++) {
+      const cell = model.cells.get(index);
+      existingCellIds.add(`${current.context.path}:${cell.id}`);
+    }
+
+    this.generatedCellIds.forEach((generatedCellId, suggestionKey) => {
+      if (existingCellIds.has(generatedCellId)) {
+        return;
+      }
+
+      this.generatedCellIds.delete(suggestionKey);
+      this.generatedSuggestions.delete(suggestionKey);
+    });
   }
 
   // notebook 中选中 cell 后，自动把侧边栏 tree 中对应 node 滚动到可见区域。
@@ -793,7 +837,18 @@ class AIAssistantPanel extends Widget {
       tree
     });
 
-    this.suggestions.set(selectedCell.cellId, response.suggestions);
+    // 重新请求 AI Next 时，只保留仍有关联 generated cell 的旧 suggestions。
+    this.pruneMissingGeneratedCells();
+    const generatedSuggestions = this.getGeneratedSuggestionsForCell(
+      selectedCell.cellId
+    );
+    const nextSuggestions = response.suggestions.map((suggestion, index) =>
+      this.withClientSuggestionKey(selectedCell.cellId, suggestion, index)
+    );
+    this.suggestions.set(selectedCell.cellId, [
+      ...generatedSuggestions,
+      ...nextSuggestions
+    ]);
     const savedSuggestions = this.suggestions.get(selectedCell.cellId) ?? [];
     this.pendingSuggestionCellID = '';
     this.statusMessage = `Generated ${savedSuggestions.length} suggestions for cell ${cellIndex}.`;
@@ -851,7 +906,10 @@ class AIAssistantPanel extends Widget {
 
           if (
             this.generatedCellIds.has(
-              this.createSuggestionKey(cell.cellId, suggestion.id)
+              this.createSuggestionKey(
+                cell.cellId,
+                this.getSuggestionIdentity(suggestion)
+              )
             )
           ) {
             option.classList.add('jp-ai-assistant-suggestion-option-selected');
@@ -889,7 +947,10 @@ class AIAssistantPanel extends Widget {
     cell: ICellDescriptor,
     suggestion: ISuggestion
   ): Promise<void> {
-    const suggestionKey = this.createSuggestionKey(cell.cellId, suggestion.id);
+    const suggestionKey = this.createSuggestionKey(
+      cell.cellId,
+      this.getSuggestionIdentity(suggestion)
+    );
     this.pendingSuggestionCellID = cell.cellId;
     this.statusMessage = `Generating content for ${suggestion.id}.`;
     this.updateNotebookInfo();
@@ -899,9 +960,16 @@ class AIAssistantPanel extends Widget {
       cell,
       suggestion
     );
+    const generatedSuggestion = {
+      ...response.suggestion,
+      metadata: {
+        ...response.suggestion.metadata,
+        ai_assistant_suggestion_key: this.getSuggestionIdentity(suggestion)
+      }
+    };
 
-    this.generatedSuggestions.set(suggestionKey, response.suggestion);
-    await this.createOrUpdateGeneratedCell(cell, response.suggestion);
+    this.generatedSuggestions.set(suggestionKey, generatedSuggestion);
+    await this.createOrUpdateGeneratedCell(cell, generatedSuggestion);
     this.pendingSuggestionCellID = '';
     this.statusMessage = response.message;
     this.updateNotebookInfo();
@@ -921,7 +989,7 @@ class AIAssistantPanel extends Widget {
     const cellData = this.createGeneratedCellData(sourceCell, suggestion);
     const suggestionKey = this.createSuggestionKey(
       sourceCell.cellId,
-      suggestion.id
+      this.getSuggestionIdentity(suggestion)
     );
     const existingGeneratedCellId = this.generatedCellIds.get(suggestionKey);
     const existingGeneratedCellIndex = existingGeneratedCellId
@@ -983,9 +1051,13 @@ class AIAssistantPanel extends Widget {
 
       const parentCellId = `${current.context.path}:${parentRawCellId}`;
       const generatedCellId = `${current.context.path}:${cell.id}`;
+      const suggestionIdentity =
+        typeof metadata.ai_assistant_suggestion_key === 'string'
+          ? metadata.ai_assistant_suggestion_key
+          : suggestionId;
       const suggestionKey = this.createSuggestionKey(
         parentCellId,
-        suggestionId
+        suggestionIdentity
       );
       const suggestionTitle =
         typeof metadata.ai_assistant_suggestion_title === 'string'
@@ -1002,7 +1074,8 @@ class AIAssistantPanel extends Widget {
           cellType: cell.type,
           content: cell.sharedModel.getSource(),
           metadata: {
-            source: 'metadata'
+            source: 'metadata',
+            ai_assistant_suggestion_key: suggestionIdentity
           }
         });
       }
@@ -1011,6 +1084,59 @@ class AIAssistantPanel extends Widget {
 
   private createSuggestionKey(cellId: string, suggestionId: string): string {
     return `${cellId}::${suggestionId}`;
+  }
+
+  // 优先使用前端生成的唯一 key，避免后端复用 suggestion id 导致误高亮。
+  private getSuggestionIdentity(suggestion: ISuggestion): string {
+    const metadata = suggestion.metadata as Record<string, unknown>;
+    const clientKey = metadata.ai_assistant_suggestion_key;
+
+    return typeof clientKey === 'string' ? clientKey : suggestion.id;
+  }
+
+  // 给每次新返回的 suggestion 加唯一 key，用来区分不同批次建议。
+  private withClientSuggestionKey(
+    cellId: string,
+    suggestion: ISuggestion,
+    index: number
+  ): ISuggestion {
+    return {
+      ...suggestion,
+      metadata: {
+        ...suggestion.metadata,
+        ai_assistant_suggestion_key: `${this.getRawCellId(cellId)}-${Date.now()}-${index}-${suggestion.id}`
+      }
+    };
+  }
+
+  // 只保留仍然对应现存 generated cell 的旧 suggestions。
+  private getGeneratedSuggestionsForCell(cellId: string): ISuggestion[] {
+    return (this.suggestions.get(cellId) ?? []).filter(suggestion =>
+      this.generatedCellExists(cellId, this.getSuggestionIdentity(suggestion))
+    );
+  }
+
+  // 确认某条 suggestion 对应的 generated cell 是否仍在 notebook 中。
+  private generatedCellExists(cellId: string, suggestionId: string): boolean {
+    const current = this.notebookTracker.currentWidget;
+    const model = current?.content.model;
+    const generatedCellId = this.generatedCellIds.get(
+      this.createSuggestionKey(cellId, suggestionId)
+    );
+
+    if (!current || !model || !generatedCellId) {
+      return false;
+    }
+
+    for (let index = 0; index < model.cells.length; index++) {
+      const cell = model.cells.get(index);
+
+      if (`${current.context.path}:${cell.id}` === generatedCellId) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   private findGeneratedCellInsertIndex(
@@ -1058,7 +1184,8 @@ class AIAssistantPanel extends Widget {
         ai_assistant_generated: true,
         ai_assistant_parent_cell_id: this.getRawCellId(sourceCell.cellId),
         ai_assistant_suggestion_title: suggestion.title,
-        ai_assistant_suggestion_id: suggestion.id
+        ai_assistant_suggestion_id: suggestion.id,
+        ai_assistant_suggestion_key: this.getSuggestionIdentity(suggestion)
       }
     };
 

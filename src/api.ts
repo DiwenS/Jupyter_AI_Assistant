@@ -35,6 +35,7 @@ export interface ISuggestion {
   content: string;
   metadata: {
     source: string;
+    [key: string]: unknown;
   };
 }
 
