@@ -328,7 +328,9 @@ class AIAssistantPanel extends Widget {
 
     const treeNodes: string[] = [];
     const generatedCellIdSet = new Set(this.generatedCellIds.values());
+    const childCellIdSet = this.getTreeChildCellIds(current);
     const renderTreeNode = (
+      cellId: string,
       cellIndex: number,
       cellType: string,
       summary: string,
@@ -368,7 +370,9 @@ class AIAssistantPanel extends Widget {
             class="jp-ai-assistant-tree-node-button${nodeShapeClass}"
             type="button"
             data-cell-index="${cellIndex}"
+            data-cell-id="${this.escapeHtml(cellId)}"
             data-cell-type="${this.escapeHtml(normalizedCellType)}"
+            draggable="true"
             title="Jump to cell ${cellIndex}"
           >
             <span>${cellIndex}</span>
@@ -380,19 +384,18 @@ class AIAssistantPanel extends Widget {
       `;
     };
 
-    // 将 notebook 中每个非 generated cell 转成一个 tree node。
-    // generated cells 会作为 source cell 的子节点显示，避免重复出现在主干上。
+    // 将没有 parent 的 cell 作为主干节点；有 parent 的节点递归显示为子节点。
     for (let i = 0; i < cellCount; i++) {
       const cell = model.cells.get(i);
       const cellId = `${current.context.path}:${cell.id}`;
 
-      if (generatedCellIdSet.has(cellId)) {
+      if (childCellIdSet.has(cellId)) {
         continue;
       }
 
       const cellType = cell.type;
       const summary = this.summaries.get(cellId) || 'No summary generated yet.';
-      const childNodes = this.renderGeneratedChildTreeNodes(
+      const childNodes = this.renderChildTreeNodes(
         current,
         cellId,
         renderTreeNode
@@ -400,7 +403,7 @@ class AIAssistantPanel extends Widget {
 
       treeNodes.push(`
         <div class="jp-ai-assistant-tree-family">
-          ${renderTreeNode(i, cellType, summary, false)}
+          ${renderTreeNode(cellId, i, cellType, summary, generatedCellIdSet.has(cellId))}
           ${childNodes}
         </div>
       `);
@@ -412,7 +415,7 @@ class AIAssistantPanel extends Widget {
           class="jp-ai-assistant-tree-canvas"
           style="transform: scale(${this.treeZoom}); width: ${100 / this.treeZoom}%"
         >
-          <div class="jp-ai-assistant-tree-root">
+          <div class="jp-ai-assistant-tree-root" data-tree-root="true">
             <span>Root</span>
             <strong>${this.escapeHtml(notebookName)}</strong>
             <small>${cellCount} cells</small>
@@ -438,6 +441,7 @@ class AIAssistantPanel extends Widget {
           }
         };
       });
+    this.attachTreeDragHandlers(notebookTree);
 
     // 给每个 cell 添加 AI next button。
     this.attachAInextButtons();
@@ -446,10 +450,11 @@ class AIAssistantPanel extends Widget {
     this.syncCellSuggestions();
   }
 
-  private renderGeneratedChildTreeNodes(
+  private renderChildTreeNodes(
     panel: NotebookPanel,
     sourceCellId: string,
     renderTreeNode: (
+      cellId: string,
       cellIndex: number,
       cellType: string,
       summary: string,
@@ -466,38 +471,51 @@ class AIAssistantPanel extends Widget {
 
     visitedCellIds.add(sourceCellId);
 
-    this.generatedCellIds.forEach((generatedCellId, suggestionKey) => {
-      if (!suggestionKey.startsWith(`${sourceCellId}::`)) {
-        return;
+    for (let index = 0; index < model.cells.length; index++) {
+      const childCell = model.cells.get(index);
+      const childCellId = `${panel.context.path}:${childCell.id}`;
+      const parentId = this.getContextTreeParentId(childCellId);
+
+      if (
+        parentId !== sourceCellId ||
+        visitedCellIds.has(childCellId)
+      ) {
+        continue;
       }
 
-      const generatedCellIndex = this.findCellIndexByCellId(
-        panel,
-        generatedCellId
-      );
+      const generatedCellIndex = this.findCellIndexByCellId(panel, childCellId);
 
       if (generatedCellIndex < 0) {
-        return;
+        continue;
       }
 
       const generatedCell = model.cells.get(generatedCellIndex);
-      const generatedSuggestion = this.generatedSuggestions.get(suggestionKey);
+      const generatedSuggestion =
+        this.findGeneratedSuggestionByCellId(childCellId);
       const summary =
-        generatedSuggestion?.title || 'Generated from selected suggestion.';
-      const nestedChildNodes = this.renderGeneratedChildTreeNodes(
+        generatedSuggestion?.title ||
+        this.summaries.get(childCellId) ||
+        'No summary generated yet.';
+      const nestedChildNodes = this.renderChildTreeNodes(
         panel,
-        generatedCellId,
+        childCellId,
         renderTreeNode,
         new Set(visitedCellIds)
       );
 
       childNodes.push(`
         <div class="jp-ai-assistant-tree-family">
-          ${renderTreeNode(generatedCellIndex, generatedCell.type, summary, true)}
+          ${renderTreeNode(
+            childCellId,
+            generatedCellIndex,
+            generatedCell.type,
+            summary,
+            this.isGeneratedCellId(childCellId)
+          )}
           ${nestedChildNodes}
         </div>
       `);
-    });
+    }
 
     if (childNodes.length === 0) {
       return '';
@@ -508,6 +526,180 @@ class AIAssistantPanel extends Widget {
         ${childNodes.join('')}
       </div>
     `;
+  }
+
+  // 收集所有有 parent 的 cell，渲染主干时避免重复显示。
+  private getTreeChildCellIds(panel: NotebookPanel): Set<string> {
+    const childCellIds = new Set<string>();
+    const model = panel.content.model;
+
+    if (!model) {
+      return childCellIds;
+    }
+
+    const existingCellIds = new Set<string>();
+
+    for (let index = 0; index < model.cells.length; index++) {
+      const cell = model.cells.get(index);
+      existingCellIds.add(`${panel.context.path}:${cell.id}`);
+    }
+
+    for (let index = 0; index < model.cells.length; index++) {
+      const cell = model.cells.get(index);
+      const cellId = `${panel.context.path}:${cell.id}`;
+      const parentId = this.getContextTreeParentId(cellId);
+
+      if (
+        parentId !== ROOT_TREE_PARENT_ID &&
+        parentId !== cellId &&
+        existingCellIds.has(parentId)
+      ) {
+        childCellIds.add(cellId);
+      }
+    }
+
+    return childCellIds;
+  }
+
+  // 根据 generated cell id 找到对应 suggestion，用于显示生成节点标题。
+  private findGeneratedSuggestionByCellId(cellId: string): ISuggestion | undefined {
+    for (const [suggestionKey, generatedCellId] of this.generatedCellIds) {
+      if (generatedCellId === cellId) {
+        return this.generatedSuggestions.get(suggestionKey);
+      }
+    }
+
+    return undefined;
+  }
+
+  // 给 tree node 绑定拖拽事件，拖到另一个 node 上时更新 tree parent metadata。
+  private attachTreeDragHandlers(notebookTree: HTMLElement): void {
+    const rootNode = notebookTree.querySelector<HTMLElement>(
+      '.jp-ai-assistant-tree-root[data-tree-root]'
+    );
+
+    if (rootNode) {
+      rootNode.ondragover = event => {
+        event.preventDefault();
+        rootNode.classList.add('jp-ai-assistant-tree-root-drop-target');
+      };
+
+      rootNode.ondragleave = () => {
+        rootNode.classList.remove('jp-ai-assistant-tree-root-drop-target');
+      };
+
+      rootNode.ondrop = event => {
+        event.preventDefault();
+        rootNode.classList.remove('jp-ai-assistant-tree-root-drop-target');
+
+        const draggedCellId = event.dataTransfer?.getData('text/plain');
+
+        if (draggedCellId) {
+          this.reparentTreeNode(draggedCellId, null);
+        }
+      };
+    }
+
+    notebookTree
+      .querySelectorAll<HTMLButtonElement>('.jp-ai-assistant-tree-node-button')
+      .forEach(button => {
+        button.ondragstart = event => {
+          if (!button.dataset.cellId) {
+            return;
+          }
+
+          event.dataTransfer?.setData('text/plain', button.dataset.cellId);
+          event.dataTransfer?.setDragImage(button, 28, 28);
+        };
+
+        button.ondragover = event => {
+          event.preventDefault();
+          button.classList.add('jp-ai-assistant-tree-node-drop-target');
+        };
+
+        button.ondragleave = () => {
+          button.classList.remove('jp-ai-assistant-tree-node-drop-target');
+        };
+
+        button.ondrop = event => {
+          event.preventDefault();
+          button.classList.remove('jp-ai-assistant-tree-node-drop-target');
+
+          const draggedCellId = event.dataTransfer?.getData('text/plain');
+          const targetCellId = button.dataset.cellId;
+
+          if (draggedCellId && targetCellId) {
+            this.reparentTreeNode(draggedCellId, targetCellId);
+          }
+        };
+      });
+  }
+
+  // 写入手动 tree parent，避免把节点拖成自己的子孙节点。
+  private reparentTreeNode(childCellId: string, parentCellId: string | null): void {
+    const current = this.notebookTracker.currentWidget;
+    const model = current?.content.model;
+
+    if (!current || !model || childCellId === parentCellId) {
+      return;
+    }
+
+    if (
+      parentCellId &&
+      this.isTreeDescendant(current, parentCellId, childCellId)
+    ) {
+      this.statusMessage = 'Cannot move a node under its own child.';
+      this.updateNotebookInfo();
+      return;
+    }
+
+    const childIndex = this.findCellIndexByCellId(current, childCellId);
+
+    if (childIndex < 0) {
+      return;
+    }
+
+    const childCell = model.cells.get(childIndex);
+    childCell.sharedModel.setMetadata(
+      'ai_assistant_tree_parent_cell_id',
+      parentCellId ? this.getRawCellId(parentCellId) : ''
+    );
+    this.statusMessage = parentCellId
+      ? `Moved cell ${childIndex} under another tree node.`
+      : `Moved cell ${childIndex} under Root.`;
+    void current.context.save();
+    this.updateNotebookInfo();
+  }
+
+  // 判断 candidate 是否已经是 source 的子孙，防止拖拽后形成循环树。
+  private isTreeDescendant(
+    panel: NotebookPanel,
+    candidateCellId: string,
+    sourceCellId: string
+  ): boolean {
+    const model = panel.content.model;
+
+    if (!model) {
+      return false;
+    }
+
+    for (let index = 0; index < model.cells.length; index++) {
+      const cell = model.cells.get(index);
+      const cellId = `${panel.context.path}:${cell.id}`;
+
+      if (this.getContextTreeParentId(cellId) !== sourceCellId) {
+        continue;
+      }
+
+      if (
+        cellId === candidateCellId ||
+        this.isTreeDescendant(panel, candidateCellId, cellId)
+      ) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   private updateStatusMessage(): void {
