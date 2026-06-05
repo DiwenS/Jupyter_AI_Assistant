@@ -59,3 +59,27 @@
     {'source': 'rule-based'}
   }
 }
+
+
+
+{
+  'selectedCell':
+  {
+    'cellId': 'notebooks/small_ancova_process.ipynb:59e0c368', 'cellIndex': 1, 'cellType': 'markdown', 'source': '# 1. 读取数据并检验'
+  },
+  'selectedSuggestion':
+  {'id': 'suggestion-1', 'title': '加载数据集到DataFrame（例如使用pd.read_csv()）', 'description': '加 载数据集到DataFrame（例如使用pd.read_csv()）', 'cellType': 'code', 'content': '# TODO: generate cell content here',
+    'metadata':
+    {'source': 'rule-based', 'ai_assistant_suggestion_key': '59e0c368-1780670495539-0-suggestion-1'}
+  },
+  'context':
+  {
+    'previousCells':
+    [
+      {'cellId': 'notebooks/small_ancova_process.ipynb:d979f569', 'cellIndex': 0, 'cellType': 'code', 'source': 'import pandas as pd\nimport numpy as np\nfrom scipy import stats\nfrom scipy.stats import shapiro, levene\nimport statsmodels.formula.api as smf\nimport statsmodels.api as sm\nimport matplotlib.pyplot as plt\nimport seaborn as sns\nimport warnings\nimport os'}
+    ],
+    'nextCells': [],
+    'tree':
+    [{'id': 'notebooks/small_ancova_process.ipynb:d979f569', 'cellIndex': 0, 'cellType': 'code', 'isGenerated': False, 'parentId': 'ROOT', 'children': []}, {'id': 'notebooks/small_ancova_process.ipynb:59e0c368', 'cellIndex': 1, 'cellType': 'markdown', 'isGenerated': False, 'parentId': 'ROOT', 'children': []}]
+  }
+}

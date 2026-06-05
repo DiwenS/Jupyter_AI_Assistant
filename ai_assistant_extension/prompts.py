@@ -169,6 +169,8 @@ def build_content_generation_prompt(
         selected_cell_source: str = "",
         selected_cell_type: str = "code",
         suggestion_source: str = "llm",
+        previous_context: Optional[Dict] = None,
+        next_context: Optional[Dict] = None,
 ) -> List[Dict[str, str]]:
     """
     Build prompt for notebook cell content generation.
@@ -212,6 +214,12 @@ Selected suggestion title:
 
 Selected suggestion description:
 {selected_sug_desc}
+
+previous notebook context:
+{_format_context(previous_context) if previous_context else "None"}
+
+next notebook context:
+{_format_context(next_context) if next_context else "None"}
 
 Generate the corresponding Jupyter notebook cell content.
 """

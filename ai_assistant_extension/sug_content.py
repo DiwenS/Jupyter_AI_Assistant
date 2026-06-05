@@ -8,6 +8,8 @@ def next_cell_content(
     selected_cell_source="",
     selected_cell_type="code",
     suggestion_source="llm",
+    previous_context="",
+    next_context=""
 ):
     print("============= AI generating next cell content =============")
     print("== suggestion input ==")
@@ -29,6 +31,8 @@ def next_cell_content(
         selected_cell_source=selected_cell_source,
         selected_cell_type=selected_cell_type,
         suggestion_source=suggestion_source,
+        previous_context=previous_context,
+        next_context=next_context
     )
     
     response = generate(message)

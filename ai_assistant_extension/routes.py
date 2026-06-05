@@ -234,6 +234,14 @@ class SelectSuggestionHandler(APIHandler):
             }))
             return
 
+        previous_cells = data.get("context", []).get("previousCells", [])
+        next_cells = data.get("context", []).get("nextCells", [])
+
+        # print("⬇️ Selected cell previous context1 ⬇️")
+        # print(previous_cells)
+        # print("⬇️ Selected cell next context1 ⬇️")
+        # print(next_cells)
+
         print("[Selected cell]")
         print(selected_cell)
         print("[Selected suggestion]")
@@ -246,6 +254,8 @@ class SelectSuggestionHandler(APIHandler):
                 selected_cell_source=selected_cell_source,
                 selected_cell_type=selected_cell_type,
                 suggestion_source=suggestion_source,
+                previous_context=previous_cells,
+                next_context=next_cells,
             )
         except Exception as e:
             self.set_status(500)
