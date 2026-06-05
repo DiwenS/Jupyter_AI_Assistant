@@ -10,16 +10,23 @@ export interface ICellDescriptor {
   cellIndex: number;
   cellType: string;
   source: string;
+  title?: string;
   summary?: string; //？表示可选
 }
 
 // 描述后端接口summarize-cell返回的cell summary数据
+export interface ICellSummaryData {
+  title: string;
+  summary: string;
+}
+
 export interface ICellSummaryResponse {
   status: 'success' | 'error';
   cellId: string;
   cellIndex: number | null;
   cellType: string;
-  summary: string;
+  title?: string;
+  summary?: string;
   details: string;
   metadata: {
     source: string;
@@ -61,6 +68,7 @@ export interface ITreeNode {
   id: string;
   cellIndex: number;
   cellType: string;
+  title?: string;
   summary?: string;
   isGenerated?: boolean;
   parentId: string; // 根节点下的 cell 使用 'ROOT' 作为 parentId。

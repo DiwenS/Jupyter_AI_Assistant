@@ -10,6 +10,8 @@ import { Widget } from '@lumino/widgets';
 import { ServerConnection } from '@jupyterlab/services';
 import {
   ICellDescriptor,
+  ICellSummaryData,
+  ICellSummaryResponse,
   INextStepContext,
   ISuggestion,
   ITreeNode,
@@ -35,7 +37,7 @@ class AIAssistantPanel extends Widget {
   private notebookTracker: INotebookTracker;
   //添加serversetting方便之后调用 summarizeCell(this.serverSettings, cell)
   private serverSettings: ServerConnection.ISettings;
-  private summaries = new Map<string, string>();
+  private summaries = new Map<string, ICellSummaryData>();
 
   //AI next button 需要的 suggestions 数据结构，key 是 cellId，value 是对应的建议列表。
   private suggestions = new Map<string, ISuggestion[]>();
@@ -314,11 +316,14 @@ class AIAssistantPanel extends Widget {
       const cellType = cell.type;
 
       const cellId = `${current.context.path}:${cell.id}`;
-      const summary = this.summaries.get(cellId) || 'No summary generated yet.';
+      const summaryData = this.getSummaryData(cellId);
+      const title = summaryData?.title || 'No title generated yet.';
+      const summary = summaryData?.summary || 'No summary generated yet.';
 
       items.push(`
         <li>
           <b>[${i}] ${cellType}</b><br />
+          <p><b>Title:</b> ${this.escapeHtml(title)}</p>
           <p><b>Summary:</b> ${this.escapeHtml(summary)}</p>
         </li>
       `);
@@ -394,7 +399,8 @@ class AIAssistantPanel extends Widget {
       }
 
       const cellType = cell.type;
-      const summary = this.summaries.get(cellId) || 'No summary generated yet.';
+      const summary =
+        this.getSummaryData(cellId)?.summary || 'No summary generated yet.';
       const childNodes = this.renderChildTreeNodes(
         current,
         cellId,
@@ -494,7 +500,7 @@ class AIAssistantPanel extends Widget {
         this.findGeneratedSuggestionByCellId(childCellId);
       const summary =
         generatedSuggestion?.title ||
-        this.summaries.get(childCellId) ||
+        this.getSummaryData(childCellId)?.summary ||
         'No summary generated yet.';
       const nestedChildNodes = this.renderChildTreeNodes(
         panel,
@@ -506,12 +512,12 @@ class AIAssistantPanel extends Widget {
       childNodes.push(`
         <div class="jp-ai-assistant-tree-family">
           ${renderTreeNode(
-            childCellId,
-            generatedCellIndex,
-            generatedCell.type,
-            summary,
-            this.isGeneratedCellId(childCellId)
-          )}
+        childCellId,
+        generatedCellIndex,
+        generatedCell.type,
+        summary,
+        this.isGeneratedCellId(childCellId)
+      )}
           ${nestedChildNodes}
         </div>
       `);
@@ -837,12 +843,16 @@ class AIAssistantPanel extends Widget {
 
     for (let i = 0; i < model.cells.length; i++) {
       const cell = model.cells.get(i);
+      const cellId = `${current.context.path}:${cell.id}`;
+      const summaryData = this.getSummaryData(cellId);
 
       cells.push({
-        cellId: `${current.context.path}:${cell.id}`,
+        cellId,
         cellIndex: i,
         cellType: cell.type,
-        source: cell.sharedModel.getSource()
+        source: cell.sharedModel.getSource(),
+        title: summaryData?.title,
+        summary: summaryData?.summary
       });
     }
 
@@ -852,18 +862,13 @@ class AIAssistantPanel extends Widget {
   // 复用 suggest-next-steps 的 context 格式，给后端提供当前 notebook 上下文。
   private buildNotebookContext(cellIndex: number): INextStepContext {
     const cells = this.getCurrentCells();
-    const cellsWithSummaries = cells.map(cell => ({
-      ...cell,
-      summary: this.summaries.get(cell.cellId)
-    }));
-
-    const tree = this.buildContextTree(cellsWithSummaries);
+    const tree = this.buildContextTree(cells);
     // 限制前后cell的最大传输数量
     return {
       //previousCells: cellsWithSummaries.slice(0, cellIndex),
-      previousCells: cellsWithSummaries.slice(Math.max(0, cellIndex - 5), cellIndex),
+      previousCells: cells.slice(Math.max(0, cellIndex - 5), cellIndex),
       //nextCells: cellsWithSummaries.slice(cellIndex + 1),
-      nextCells: cellsWithSummaries.slice(cellIndex + 1, cellIndex + 4),
+      nextCells: cells.slice(cellIndex + 1, cellIndex + 4),
       tree
     };
   }
@@ -880,6 +885,7 @@ class AIAssistantPanel extends Widget {
         id: cell.cellId,
         cellIndex: cell.cellIndex,
         cellType: cell.cellType,
+        title: cell.title,
         summary: cell.summary,
         isGenerated: this.isGeneratedCellId(cell.cellId),
         parentId,
@@ -940,6 +946,63 @@ class AIAssistantPanel extends Widget {
     return Array.from(this.generatedCellIds.values()).includes(cellId);
   }
 
+  // 兼容后端返回 object、JSON 字符串和旧版纯文本 summary。
+  private normalizeSummaryData(rawSummary: unknown): ICellSummaryData {
+    if (typeof rawSummary === 'object' && rawSummary !== null) {
+      const summaryObject = rawSummary as Record<string, unknown>;
+      return {
+        title: this.limitSummaryTitle(
+          typeof summaryObject.title === 'string' ? summaryObject.title : ''
+        ),
+        summary:
+          typeof summaryObject.summary === 'string'
+            ? summaryObject.summary
+            : ''
+      };
+    }
+
+    if (typeof rawSummary === 'string') {
+      try {
+        return this.normalizeSummaryData(JSON.parse(rawSummary));
+      } catch {
+        return {
+          title: '',
+          summary: rawSummary
+        };
+      }
+    }
+
+    return {
+      title: '',
+      summary: ''
+    };
+  }
+
+  // 兼容 title/summary 位于 response 顶层，或 summary 字段内部为 JSON 的两种格式。
+  private normalizeSummaryResponse(
+    response: ICellSummaryResponse
+  ): ICellSummaryData {
+    const summaryData = this.normalizeSummaryData(response.summary);
+    const title =
+      typeof response.title === 'string' && response.title.trim()
+        ? response.title
+        : summaryData.title;
+
+    return {
+      title: this.limitSummaryTitle(title),
+      summary: summaryData.summary
+    };
+  }
+
+  private getSummaryData(cellId: string): ICellSummaryData | undefined {
+    return this.summaries.get(cellId);
+  }
+
+  // 前端兜底限制 title 最多 5 个单词，和后端约定保持一致。
+  private limitSummaryTitle(title: string): string {
+    return title.trim().split(/\s+/).filter(Boolean).slice(0, 5).join(' ');
+  }
+
   // ── 从 notebook metadata 加载缓存 ───────────────────────────────────
   private loadCacheFromNotebook(): void {
     const current = this.notebookTracker.currentWidget;
@@ -968,7 +1031,10 @@ class AIAssistantPanel extends Widget {
 
     if (meta.summaries) {
       for (const [rawCellId, summary] of Object.entries(meta.summaries)) {
-        this.summaries.set(`${notebookPath}:${rawCellId}`, summary as string);
+        this.summaries.set(
+          `${notebookPath}:${rawCellId}`,
+          this.normalizeSummaryData(summary)
+        );
       }
     }
 
@@ -991,7 +1057,7 @@ class AIAssistantPanel extends Widget {
 
     const notebookPath = current.context.path;
 
-    const summariesPlain: Record<string, string> = {};
+    const summariesPlain: Record<string, ICellSummaryData> = {};
     this.summaries.forEach((summary, cellId) => {
       if (cellId.startsWith(`${notebookPath}:`)) {
         const rawCellId = this.getRawCellId(cellId);
@@ -1027,7 +1093,10 @@ class AIAssistantPanel extends Widget {
 
     for (const cell of cells) {
       const response = await summarizeCell(this.serverSettings, cell);
-      this.summaries.set(cell.cellId, response.summary);
+      const summaryData = this.normalizeSummaryResponse(response);
+      console.log('[AI Assistant] summarize-cell response:', response);
+      console.log('[AI Assistant] normalized summary data:', summaryData);
+      this.summaries.set(cell.cellId, summaryData);
     }
     this.saveCacheToNotebook();
     this.updateNotebookInfo();
