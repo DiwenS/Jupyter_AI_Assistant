@@ -939,8 +939,116 @@ class AIAssistantPanel extends Widget {
 
           panel.appendChild(option);
         });
+
+        // 允许用户在 AI suggestions 之外手动补充一条 suggestion。
+        this.renderCustomSuggestionInput(panel, cell);
       });
     }, 0);
+  }
+
+  private renderCustomSuggestionInput(
+    panel: HTMLDivElement,
+    cell: ICellDescriptor
+  ): void {
+    const customRow = document.createElement('div');
+    customRow.className = 'jp-ai-assistant-custom-suggestion';
+
+    const inputGroup = document.createElement('div');
+    inputGroup.className = 'jp-ai-assistant-custom-suggestion-fields';
+
+    const titleInput = document.createElement('input');
+    titleInput.type = 'text';
+    titleInput.className = 'jp-ai-assistant-custom-suggestion-input';
+    titleInput.placeholder = 'Suggestion title';
+    titleInput.dataset.lmSuppressShortcuts = 'true';
+
+    const descriptionInput = document.createElement('input');
+    descriptionInput.type = 'text';
+    descriptionInput.className = 'jp-ai-assistant-custom-suggestion-input';
+    descriptionInput.placeholder = 'Suggestion description';
+    descriptionInput.dataset.lmSuppressShortcuts = 'true';
+
+    const addButton = document.createElement('button');
+    addButton.type = 'button';
+    addButton.className = 'jp-ai-assistant-custom-suggestion-button';
+    addButton.textContent = 'Add';
+    addButton.dataset.lmSuppressShortcuts = 'true';
+
+    const addCustomSuggestion = () => {
+      const customTitle = titleInput.value.trim();
+      const customDescription = descriptionInput.value.trim();
+
+      if (!customTitle && !customDescription) {
+        return;
+      }
+
+      this.addCustomSuggestionForCell(cell, customTitle, customDescription);
+    };
+
+    const stopNotebookFocus = (event: MouseEvent) => {
+      event.stopPropagation();
+    };
+    const submitOnEnter = (event: KeyboardEvent) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        event.stopPropagation();
+        addCustomSuggestion();
+      }
+    };
+
+    titleInput.onmousedown = stopNotebookFocus;
+    descriptionInput.onmousedown = stopNotebookFocus;
+    titleInput.onkeydown = submitOnEnter;
+    descriptionInput.onkeydown = submitOnEnter;
+
+    addButton.onmousedown = event => {
+      event.preventDefault();
+      event.stopPropagation();
+    };
+
+    addButton.onclick = event => {
+      event.preventDefault();
+      event.stopPropagation();
+      addCustomSuggestion();
+    };
+
+    inputGroup.appendChild(titleInput);
+    inputGroup.appendChild(descriptionInput);
+    customRow.appendChild(inputGroup);
+    customRow.appendChild(addButton);
+    panel.appendChild(customRow);
+  }
+
+  // 将用户输入包装成后端 select-suggestion 接口可接收的 suggestion。
+  private addCustomSuggestionForCell(
+    cell: ICellDescriptor,
+    customTitle: string,
+    customDescription: string
+  ): void {
+    const title = customTitle || customDescription;
+    const description = customDescription || customTitle;
+    const customSuggestion = this.withClientSuggestionKey(
+      cell.cellId,
+      {
+        id: `user-suggestion-${Date.now()}`,
+        title,
+        description,
+        cellType: 'code',
+        content: '',
+        metadata: {
+          source: 'user'
+        }
+      },
+      0
+    );
+
+    this.suggestions.set(cell.cellId, [
+      ...(this.suggestions.get(cell.cellId) ?? []),
+      customSuggestion
+    ]);
+    this.statusMessage = 'Custom suggestion added.';
+    this.saveCacheToNotebook();
+    this.updateNotebookInfo();
   }
 
   private async selectSuggestionForCell(

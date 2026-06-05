@@ -394,3 +394,44 @@ Fixed 固定显示，Hover 悬浮显示。 */
   border-color: var(--jp-brand-color1);
   box-shadow: inset 3px 0 0 var(--jp-brand-color1);
 }
+
+.jp-ai-assistant-custom-suggestion {
+  align-items: stretch;
+  display: grid;
+  gap: 6px;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.jp-ai-assistant-custom-suggestion-fields {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.jp-ai-assistant-custom-suggestion-input {
+  background: var(--jp-layout-color1);
+  border: 1px solid var(--jp-border-color2);
+  border-radius: 4px;
+  color: var(--jp-ui-font-color1);
+  font-family: var(--jp-ui-font-family);
+  font-size: var(--jp-ui-font-size1);
+  min-width: 0;
+  padding: 5px 7px;
+}
+
+.jp-ai-assistant-custom-suggestion-input:focus {
+  border-color: var(--jp-brand-color1);
+  outline: none;
+}
+
+.jp-ai-assistant-custom-suggestion-button {
+  align-self: stretch;
+  background: var(--jp-brand-color1);
+  border: 1px solid var(--jp-brand-color1);
+  border-radius: 4px;
+  color: var(--jp-ui-inverse-font-color1);
+  cursor: pointer;
+  font-family: var(--jp-ui-font-family);
+  font-size: var(--jp-ui-font-size1);
+  padding: 5px 8px;
+}
