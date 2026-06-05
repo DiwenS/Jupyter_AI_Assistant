@@ -62,7 +62,9 @@ export interface ITreeNode {
   cellIndex: number;
   cellType: string;
   summary?: string;
-  parentId?: string; //根节点没有parentId TODO:待完善
+  isGenerated?: boolean;
+  parentId: string; // 根节点下的 cell 使用 'ROOT' 作为 parentId。
+  children?: ITreeNode[];
 }
 
 /**
@@ -154,17 +156,28 @@ export async function suggestNextSteps(
 export async function selectSuggestion(
   serverSettings: ServerConnection.ISettings,
   selectedCell: ICellDescriptor,
-  selectedSuggestion: ISuggestion
+  selectedSuggestion: ISuggestion,
+  context: INextStepContext
 ): Promise<ISelectSuggestionResponse> {
+  const requestBody = {
+    selectedCell,
+    selectedSuggestion,
+    context
+  };
+
+  console.log('========== HTTP REQUEST ==========');
+  console.log('Endpoint:', 'select-suggestion');
+  console.log('Method:', 'POST');
+  console.log('Body:', JSON.stringify(requestBody, null, 2));
+  console.log('Server Settings:', serverSettings);
+  console.log('==================================');
+
   const response = await requestAPI<ISelectSuggestionResponse>(
     'select-suggestion',
     serverSettings,
     {
       method: 'POST',
-      body: JSON.stringify({
-        selectedCell,
-        selectedSuggestion
-      })
+      body: JSON.stringify(requestBody)
     }
   );
 

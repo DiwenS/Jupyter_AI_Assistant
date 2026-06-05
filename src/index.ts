@@ -10,6 +10,7 @@ import { Widget } from '@lumino/widgets';
 import { ServerConnection } from '@jupyterlab/services';
 import {
   ICellDescriptor,
+  INextStepContext,
   ISuggestion,
   ITreeNode,
   summarizeCell,
@@ -20,6 +21,7 @@ import {
 // Tree 中 node summary 的两种显示方式：固定显示或 hover 悬浮显示。
 type SummaryDisplayMode = 'fixed' | 'hover';
 type GeneratedCellType = 'code' | 'markdown' | 'raw';
+const ROOT_TREE_PARENT_ID = 'ROOT';
 type IGeneratedCellData = (
   | Partial<nbformat.ICodeCell>
   | Partial<nbformat.IMarkdownCell>
@@ -349,15 +351,15 @@ class AIAssistantPanel extends Widget {
       const fixedSummaryMarkup =
         this.summaryDisplayMode === 'fixed'
           ? `<div class="jp-ai-assistant-tree-node-summary-fixed">${this.escapeHtml(
-              summary
-            )}</div>`
+            summary
+          )}</div>`
           : '';
       // Hover 模式：summary 作为 tooltip，鼠标悬浮或键盘 focus 时显示。
       const hoverSummaryMarkup =
         this.summaryDisplayMode === 'hover'
           ? `<div class="jp-ai-assistant-tree-node-tooltip">${this.escapeHtml(
-              summary
-            )}</div>`
+            summary
+          )}</div>`
           : '';
 
       return `
@@ -655,6 +657,97 @@ class AIAssistantPanel extends Widget {
     return cells;
   }
 
+  // 复用 suggest-next-steps 的 context 格式，给后端提供当前 notebook 上下文。
+  private buildNotebookContext(cellIndex: number): INextStepContext {
+    const cells = this.getCurrentCells();
+    const cellsWithSummaries = cells.map(cell => ({
+      ...cell,
+      summary: this.summaries.get(cell.cellId)
+    }));
+
+    const tree = this.buildContextTree(cellsWithSummaries);
+    // 限制前后cell的最大传输数量
+    return {
+      //previousCells: cellsWithSummaries.slice(0, cellIndex),
+      previousCells: cellsWithSummaries.slice(Math.max(0, cellIndex - 5), cellIndex),
+      //nextCells: cellsWithSummaries.slice(cellIndex + 1),
+      nextCells: cellsWithSummaries.slice(cellIndex + 1, cellIndex + 4),
+      tree
+    };
+  }
+
+  // 构造真正的 tree context：根节点在第一层，子节点放进 parent 的 children。
+  private buildContextTree(cells: ICellDescriptor[]): ITreeNode[] {
+    const nodeMap = new Map<string, ITreeNode>();
+    const rootNodes: ITreeNode[] = [];
+
+    cells.forEach(cell => {
+      const parentId = this.getContextTreeParentId(cell.cellId);
+
+      nodeMap.set(cell.cellId, {
+        id: cell.cellId,
+        cellIndex: cell.cellIndex,
+        cellType: cell.cellType,
+        summary: cell.summary,
+        isGenerated: this.isGeneratedCellId(cell.cellId),
+        parentId,
+        children: []
+      });
+    });
+
+    nodeMap.forEach(node => {
+      const parentNode =
+        node.parentId === ROOT_TREE_PARENT_ID
+          ? undefined
+          : nodeMap.get(node.parentId);
+
+      if (!parentNode || parentNode.id === node.id) {
+        rootNodes.push(node);
+        return;
+      }
+
+      parentNode.children = parentNode.children ?? [];
+      parentNode.children.push(node);
+    });
+
+    return rootNodes;
+  }
+
+  // 从 cell metadata 读取 tree parent，用完整 cell id 返回给后端。
+  private getContextTreeParentId(cellId: string): string {
+    const current = this.notebookTracker.currentWidget;
+    const model = current?.content.model;
+
+    if (!current || !model) {
+      return ROOT_TREE_PARENT_ID;
+    }
+
+    const cellIndex = this.findCellIndexByCellId(current, cellId);
+
+    if (cellIndex < 0) {
+      return ROOT_TREE_PARENT_ID;
+    }
+
+    const metadata = model.cells.get(cellIndex).sharedModel.getMetadata();
+    const manualParentRawCellId = metadata.ai_assistant_tree_parent_cell_id;
+    const generatedParentRawCellId = metadata.ai_assistant_parent_cell_id;
+    const parentRawCellId =
+      typeof manualParentRawCellId === 'string'
+        ? manualParentRawCellId
+        : generatedParentRawCellId;
+
+    if (typeof parentRawCellId !== 'string' || !parentRawCellId) {
+      return ROOT_TREE_PARENT_ID;
+    }
+
+    return `${current.context.path}:${parentRawCellId}`;
+  }
+
+  // 标记 context tree 中哪些节点是由 suggestion 生成的 cell。
+  private isGeneratedCellId(cellId: string): boolean {
+    return Array.from(this.generatedCellIds.values()).includes(cellId);
+  }
+
   // ── 从 notebook metadata 加载缓存 ───────────────────────────────────
   private loadCacheFromNotebook(): void {
     const current = this.notebookTracker.currentWidget;
@@ -819,23 +912,12 @@ class AIAssistantPanel extends Widget {
     this.statusMessage = `Generating next-step suggestion for cell ${cellIndex}.`;
     this.updateNotebookInfo();
 
-    const cellsWithSummaries = cells.map(cells => ({
-      ...cells,
-      summary: this.summaries.get(cells.cellId)
-    }));
-
-    const tree: ITreeNode[] = cellsWithSummaries.map(cell => ({
-      id: cell.cellId,
-      cellIndex: cell.cellIndex,
-      cellType: cell.cellType,
-      summary: cell.summary
-    }));
-
-    const response = await suggestNextSteps(this.serverSettings, selectedCell, {
-      previousCells: cellsWithSummaries.slice(0, cellIndex),
-      nextCells: cellsWithSummaries.slice(cellIndex + 1),
-      tree
-    });
+    const context = this.buildNotebookContext(cellIndex);
+    const response = await suggestNextSteps(
+      this.serverSettings,
+      selectedCell,
+      context
+    );
 
     // 重新请求 AI Next 时，只保留仍有关联 generated cell 的旧 suggestions。
     this.pruneMissingGeneratedCells();
@@ -1063,10 +1145,12 @@ class AIAssistantPanel extends Widget {
     this.statusMessage = `Generating content for ${suggestion.id}.`;
     this.updateNotebookInfo();
 
+    const context = this.buildNotebookContext(cell.cellIndex);
     const response = await selectSuggestion(
       this.serverSettings,
       cell,
-      suggestion
+      suggestion,
+      context
     );
     const generatedSuggestion = {
       ...response.suggestion,
