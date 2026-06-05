@@ -33,18 +33,24 @@ def build_summary_prompt(
     system_prompt = """
 You are an expert Jupyter notebook assistant.
 
-Your task is to summarize the selected notebook cell.
+Your task is to summarize the selected notebook cell
+and generate a short title for it.
 
 Requirements:
 - Be concise and accurate.
 - Focus on what the code or markdown is doing.
 - Mention important libraries, variables, or analysis goals.
+- Generate a title with no more than 5 words.
+- The title should briefly describe the main purpose of the cell.
 - Return ONLY valid JSON.
 - Do not include markdown.
 - Do not include explanations outside JSON.
 
+Do not think step by step. Provide only the final JSON output.
+
 Expected JSON format:
 {
+  "title": "...",
   "summary": "..."
 }
 """
@@ -77,25 +83,51 @@ SELECTED CELL:
 
 def build_suggestions_prompt(
         selected_cell: str,
-        context: Dict,
+        previous_context: Dict,
+        next_context: Dict,
 ) -> List[Dict[str, str]]:
     """
     Build prompt for next-cell suggestions.
     """
 
-    context_text = _format_context(context)
+    previous_context_text = _format_context(previous_context)
+    next_context_text = _format_context(next_context)
+    print("============= Building Suggestions Prompt =============")
+    print(previous_context_text)
+    print("=" * 45)
+    print(next_context_text)
+    print("=" * 45)
 
     system_prompt = """
 You are an expert data science and Jupyter notebook assistant.
 
-Your task is to suggest the next reasonable notebook steps.
+Your task is to suggest the next reasonable actions
+or notebook steps for the CURRENT SELECTED CELL.
+
+You are given:
+- Previous notebook context:
+  cells that appear before the selected cell.
+- Next notebook context:
+  cells that appear after the selected cell.
+
+Use both contexts to understand:
+- the notebook workflow,
+- completed analysis steps,
+- upcoming analysis intentions,
+- and the role of the selected cell.
 
 Suggestions should:
-- Follow the current notebook workflow.
+- Focus on what should reasonably happen next
+  after the CURRENT SELECTED CELL.
 - Be technically meaningful.
-- Avoid repeating completed steps.
-- Prioritize useful analysis or debugging actions.
-
+- Follow the notebook workflow.
+- Avoid repeating already completed steps.
+- Avoid suggesting steps already implemented
+  in the next context unless refinement is useful.
+- Prioritize useful analysis, debugging,
+  visualization, or data-processing actions.
+  
+Do not think step by step. Provide only the final JSON output.
 Return ONLY valid JSON.
 
 Expected JSON format:
@@ -109,11 +141,146 @@ Expected JSON format:
 """
 
     user_prompt = f"""
-NOTEBOOK CONTEXT:
-{context_text}
+PREVIOUS CONTEXT:
+{previous_context_text}
 
 CURRENT SELECTED CELL:
 {selected_cell}
+
+NEXT CONTEXT:
+{next_context_text}
+"""
+
+    return [
+        {
+            "role": "system",
+            "content": system_prompt.strip(),
+        },
+        {
+            "role": "user",
+            "content": user_prompt.strip(),
+        },
+    ]
+
+
+def build_content_generation_prompt(
+        selected_sug_title: str,
+        selected_sug_desc: str,
+        selected_cell_source: str = "",
+        selected_cell_type: str = "code",
+        suggestion_source: str = "llm",
+) -> List[Dict[str, str]]:
+    """
+    Build prompt for notebook cell content generation.
+
+    This prompt supports both AI-generated suggestions and user-written
+    custom suggestions.
+    """
+
+    system_prompt = """
+You are an expert Python data science and Jupyter notebook assistant.
+
+Your task is to generate the content of a new Jupyter notebook cell
+based on a selected next-step suggestion.
+
+The suggestion may come from:
+- the AI assistant, or
+- the user directly.
+
+Requirements:
+- Generate executable Python code unless the requested cell type is markdown.
+- If the request is ambiguous, infer a reasonable next step from the selected cell.
+- Follow the user's suggestion as the main instruction.
+- Keep the generated cell concise and useful.
+- Do not include markdown code fences.
+- Do not include explanations outside the generated cell content.
+- Return ONLY the cell content.
+"""
+
+    user_prompt = f"""
+Suggestion source:
+{suggestion_source}
+
+Requested cell type:
+{selected_cell_type}
+
+Selected cell source:
+{selected_cell_source}
+
+Selected suggestion title:
+{selected_sug_title}
+
+Selected suggestion description:
+{selected_sug_desc}
+
+Generate the corresponding Jupyter notebook cell content.
+"""
+
+    return [
+        {
+            "role": "system",
+            "content": system_prompt.strip(),
+        },
+        {
+            "role": "user",
+            "content": user_prompt.strip(),
+        },
+    ]
+
+def build_error_fix_prompt(
+        cell_source: str,
+        error_message: str,
+        traceback: str = "",
+        previous_context: Optional[List[Dict]] = None,
+        next_context: Optional[List[Dict]] = None,
+) -> List[Dict[str, str]]:
+    """
+    Build prompt for fixing a failed Jupyter code cell.
+    """
+
+    previous_context = previous_context or []
+    next_context = next_context or []
+
+    previous_context_text = _format_context(previous_context)
+    next_context_text = _format_context(next_context)
+
+    system_prompt = """
+You are an expert Python and Jupyter notebook assistant.
+
+Your task is to fix a code cell that produced an error.
+
+Requirements:
+- Return ONLY the corrected Python code for the cell.
+- Do not include markdown code fences.
+- Do not include explanations outside the code.
+- Preserve the user's original intention as much as possible.
+- Make the smallest reasonable fix.
+- If imports are missing, add only the necessary imports.
+- If the error is NameError or an undefined variable error, inspect the previous notebook context and reuse an existing variable if it clearly matches the user's intention.
+- Example: if the failed code uses df.head() but previous context defines sales = pd.read_csv(...), return sales.head().
+- Do not invent new dataframes, fake file paths, or unrelated variables.
+- Do not return an empty response. If a reasonable fix is possible, return corrected code.
+"""
+
+    user_prompt = f"""
+The following Jupyter notebook code cell failed.
+
+FAILED CELL SOURCE:
+{cell_source}
+
+ERROR MESSAGE:
+{error_message}
+
+TRACEBACK:
+{traceback}
+
+PREVIOUS NOTEBOOK CONTEXT:
+{previous_context_text}
+
+NEXT NOTEBOOK CONTEXT:
+{next_context_text}
+
+Please return the corrected code cell content only.
 """
 
     return [

@@ -8,12 +8,14 @@ from ai_assistant_extension.llm_client import generate
 # def summarize_cell(cell_index):
 #     return f"This is a FAKE summary of cell {cell_index}"
 
-def summarize_cell(selected_cell_source, context):
+def summarize_cell(selected_cell_source):
     print("============= AI summarizing =============")
-    message = build_summary_prompt(selected_cell_source, context)
+    message = build_summary_prompt(selected_cell_source, context = {})
     response = generate(message)
     print("[LOG-sum] Raw AI response:")
     print(response)
+
+    # 视情况添加response有效性判断，具体代码见suggesster.py
 
     if not response:
         print("[ERROR] Empty response from AI model.")
@@ -21,5 +23,8 @@ def summarize_cell(selected_cell_source, context):
 
     if isinstance(response, str):
         response = json.loads(response)
+        # print("⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️response⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️")
+        # print(response)
 
-    return response.get("summary", "No AI summary generated")
+    # return response.get("summary", "No AI summary generated")
+    return response
