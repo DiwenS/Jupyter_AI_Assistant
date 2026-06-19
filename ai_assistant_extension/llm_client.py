@@ -125,7 +125,7 @@ def update_llm_config(config):
         "provider",
         "baseUrl",
         "model",
-        "apikey",
+        "apiKey",
         "timeoutS",
         "maxTokens",
         "temperature",

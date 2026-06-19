@@ -99,6 +99,7 @@ export function createSettingsCSS(): string {
     }
     .jp-ai-settings-body {
       padding: 8px;
+      overflow: hidden;
     }
     .jp-ai-settings-label {
       display: block;
@@ -143,6 +144,10 @@ export function createSettingsCSS(): string {
     .jp-ai-settings-status {
       font-size: 11px;
       color: var(--jp-ui-font-color2, #888);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 200px;
+      white-space: nowrap;
     }
   `;
 }
@@ -205,7 +210,7 @@ export function bindSettingsEvents(
 
       // 只在用户填写了 API Key 时才发送
       if (apiKeyInput.value.trim()) {
-        update.apiKey = apiKeyInput.value.trim();
+        (update as any).apikey = apiKeyInput.value.trim();
       }
 
       const resp = await setLLMConfig(serverSettings, update);
@@ -216,7 +221,9 @@ export function bindSettingsEvents(
         ? '(API Key configured)'
         : 'sk-... or sk-ant-...';
     } catch (e: any) {
-      statusSpan.textContent = '\u2717 ' + (e.message || 'Failed');
+      const msg = String(e.message || 'Failed');
+      statusSpan.textContent =
+        '\u2717 ' + (msg.length > 80 ? msg.slice(0, 80) + '...' : msg);
       statusSpan.style.color = 'red';
     }
   });
@@ -266,7 +273,14 @@ async function loadCurrentConfig(
       : 'sk-... or sk-ant-...';
 
     statusSpan.textContent = 'Provider: ' + cfg.provider;
-  } catch (e) {
+  } catch (e: any) {
+    const statusSpan = panelNode.querySelector(
+      '#llm-config-status'
+    ) as HTMLSpanElement;
+    if (statusSpan) {
+      statusSpan.textContent = 'Config load failed';
+      statusSpan.style.color = 'orange';
+    }
     console.warn('[AI Assistant] Could not load LLM config:', e);
   }
 }
