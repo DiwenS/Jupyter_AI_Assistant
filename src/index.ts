@@ -652,7 +652,17 @@ class AIAssistantPanel extends Widget {
 
     if (meta.summaries) {
       for (const [rawCellId, summary] of Object.entries(meta.summaries)) {
-        this.summaries.set(`${notebookPath}:${rawCellId}`, summary as string);
+        // 防御性处理：旧版本/异常响应可能写入过非字符串的脏数据，
+        // 这里过滤掉，避免污染 escapeHtml 等下游字符串操作。
+        if (typeof summary === 'string') {
+          this.summaries.set(`${notebookPath}:${rawCellId}`, summary);
+        } else {
+          console.warn(
+            '[AI Assistant] loadCache: skipping non-string summary for',
+            rawCellId,
+            summary
+          );
+        }
       }
     }
 
@@ -907,10 +917,22 @@ class AIAssistantPanel extends Widget {
     this.statusMessage = `Generating content for ${suggestion.id}.`;
     this.updateNotebookInfo();
 
+    // 复用 requestSuggestionsForCell 同款逻辑，附带 previous/next context，
+    // 否则后端生成内容时完全拿不到 notebook 上下文。
+    const cells = this.getCurrentCells();
+    const cellsWithSummaries = cells.map(c => ({
+      ...c,
+      summary: this.summaries.get(c.cellId)
+    }));
+
     const response = await selectSuggestion(
       this.serverSettings,
       cell,
-      suggestion
+      suggestion,
+      {
+        previousCells: cellsWithSummaries.slice(0, cell.cellIndex),
+        nextCells: cellsWithSummaries.slice(cell.cellIndex + 1)
+      }
     );
 
     this.generatedSuggestions.set(suggestionKey, response.suggestion);
@@ -1118,7 +1140,10 @@ class AIAssistantPanel extends Widget {
   }
 
   private escapeHtml(text: string): string {
-    return text
+    // 防御性处理：即使上游（缓存反序列化、接口响应）混入非字符串数据，
+    // 这里也不应该让整个面板崩溃。
+    const safeText = typeof text === 'string' ? text : String(text ?? '');
+    return safeText
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;');

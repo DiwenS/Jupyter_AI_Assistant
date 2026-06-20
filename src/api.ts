@@ -17,6 +17,7 @@ export interface ICellSummaryResponse {
   cellId: string;
   cellIndex: number | null;
   cellType: string;
+  title?: string;
   summary: string;
   details: string;
   metadata: {
@@ -65,6 +66,11 @@ export interface ISelectSuggestionResponse {
   metadata: {
     source: string;
   };
+}
+
+export interface ISelectSuggestionContext {
+  previousCells: ICellDescriptor[];
+  nextCells: ICellDescriptor[];
 }
 
 // ── LLM 配置相关接口（对齐后端 llm-config endpoint）──────────────────
@@ -167,7 +173,8 @@ export async function suggestNextSteps(
 export async function selectSuggestion(
   serverSettings: ServerConnection.ISettings,
   selectedCell: ICellDescriptor,
-  selectedSuggestion: ISuggestion
+  selectedSuggestion: ISuggestion,
+  context?: ISelectSuggestionContext
 ): Promise<ISelectSuggestionResponse> {
   const response = await requestAPI<ISelectSuggestionResponse>(
     'select-suggestion',
@@ -176,7 +183,8 @@ export async function selectSuggestion(
       method: 'POST',
       body: JSON.stringify({
         selectedCell,
-        selectedSuggestion
+        selectedSuggestion,
+        context: context ?? { previousCells: [], nextCells: [] }
       })
     }
   );

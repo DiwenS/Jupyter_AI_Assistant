@@ -19,12 +19,21 @@ def summarize_cell(selected_cell_source):
 
     if not response:
         print("[ERROR] Empty response from AI model.")
-        return ["No AI summary generated"]
+        return {"title": "", "summary": "No AI summary generated"}
 
     if isinstance(response, str):
-        response = json.loads(response)
-        # print("⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️response⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️")
-        # print(response)
+        try:
+            response = json.loads(response)
+        except (json.JSONDecodeError, TypeError):
+            print("[ERROR] Failed to parse AI response as JSON.")
+            return {"title": "", "summary": "No AI summary generated"}
 
-    # return response.get("summary", "No AI summary generated")
-    return response
+    if not isinstance(response, dict):
+        print("[ERROR] Unexpected AI response type:", type(response))
+        return {"title": "", "summary": "No AI summary generated"}
+
+    # 始终返回 {title, summary} 两个字符串字段，避免上游拿到 dict/list 当字符串用。
+    return {
+        "title": str(response.get("title", "") or ""),
+        "summary": str(response.get("summary", "No AI summary generated") or "No AI summary generated"),
+    }

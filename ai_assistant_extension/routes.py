@@ -109,14 +109,15 @@ class SummarizeCellHandler(APIHandler):
         if not cell_source:
             cell_source = data.get("cell_source", "")
 
-        summary = summarize_cell(cell_source)
+        result = summarize_cell(cell_source)
 
         self.finish(json.dumps({
             "status": "success",
             "cellId": cell_id,
             "cellIndex": cell_index,
             "cellType": cell_type,
-            "summary": summary,
+            "title": result.get("title", ""),
+            "summary": result.get("summary", "No AI summary generated"),
             "details": "",
             "metadata": {
                 "source": "rule-based"
@@ -234,8 +235,11 @@ class SelectSuggestionHandler(APIHandler):
             }))
             return
 
-        previous_cells = data.get("context", []).get("previousCells", [])
-        next_cells = data.get("context", []).get("nextCells", [])
+        context = data.get("context") or {}
+        if not isinstance(context, dict):
+            context = {}
+        previous_cells = context.get("previousCells", []) or []
+        next_cells = context.get("nextCells", []) or []
 
         # print("⬇️ Selected cell previous context1 ⬇️")
         # print(previous_cells)
