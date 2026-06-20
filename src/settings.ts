@@ -210,7 +210,7 @@ export function bindSettingsEvents(
 
       // 只在用户填写了 API Key 时才发送
       if (apiKeyInput.value.trim()) {
-        (update as any).apikey = apiKeyInput.value.trim();
+        (update as any).apiKey = apiKeyInput.value.trim();
       }
 
       const resp = await setLLMConfig(serverSettings, update);
