@@ -111,8 +111,8 @@ You are given:
   cells that appear after the selected cell.
 
 For each suggestion generate:
-- title:
-  A concise title.
+- suggestion:
+  A concise description of the next action or notebook step.
 - cellType:
   The most appropriate notebook cell type.
   Usually "code" or "markdown".
@@ -121,6 +121,7 @@ Rules:
 - Generate 3-5 suggestions.
 - Use "code" for executable analysis steps.
 - Use "markdown" for documentation or explanation steps.
+- The "suggestion" field should briefly describe what to do next.
 - Do not include content generation yet.
 - Do not include explanations outside JSON.
 
@@ -133,11 +134,11 @@ Expected format:
 {
   "suggestions": [
     {
-      "title": "Visualize Distribution",
+      "suggestion": "Visualize the data distribution",
       "cellType": "code"
     },
     {
-      "title": "Summarize Findings",
+      "suggestion": "Summarize the findings",
       "cellType": "markdown"
     }
   ]

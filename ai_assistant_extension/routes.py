@@ -178,7 +178,7 @@ class SuggestNextStepsHandler(APIHandler):
         suggestions = []
         for index, suggestion in enumerate(raw_suggestion_items):
             if isinstance(suggestion, dict):
-                suggestion_title = suggestion.get("title", "")
+                suggestion_title = suggestion.get("suggestion", "")
                 # suggestion_description = suggestion.get("description", suggestion_title)
                 suggestion_cell_type = suggestion.get("cellType", "code")
             else:
