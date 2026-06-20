@@ -36,16 +36,16 @@ export interface ISuggestion {
   };
 }
 
-export interface IBackendSuggestion {
-  id?: string;
-  title?: string;
-  description?: string;
-  cellType?: string;
-  content?: string;
-  metadata?: {
-    source?: string;
-  };
-}
+// export interface IBackendSuggestion {
+//   id?: string;
+//   title?: string;
+//   description?: string;
+//   cellType?: string;
+//   content?: string;
+//   metadata?: {
+//     source?: string;
+//   };
+// }
 
 export interface INextStepContext {
   previousCells: ICellDescriptor[];
@@ -62,14 +62,14 @@ export interface INextStepSuggestionsResponse {
   };
 }
 
-interface INextStepSuggestionsBackendResponse {
-  status: 'success' | 'error';
-  suggestions: IBackendSuggestion[];
-  metadata?: {
-    source?: string;
-    contextReceived?: boolean;
-  };
-}
+// interface INextStepSuggestionsBackendResponse {
+//   status: 'success' | 'error';
+//   suggestions: IBackendSuggestion[];
+//   metadata?: {
+//     source?: string;
+//     contextReceived?: boolean;
+//   };
+// }
 
 export interface ITreeNode {
   id: string;
@@ -170,7 +170,7 @@ export async function suggestNextSteps(
   console.log('Server Settings:', serverSettings);
   console.log('==================================');
 
-  const response = await requestAPI<INextStepSuggestionsBackendResponse>(
+  const response = await requestAPI<INextStepSuggestionsResponse>(
     'suggest-next-steps',
     serverSettings,
     {
@@ -186,7 +186,8 @@ export async function suggestNextSteps(
     throw new Error('Server returned an error while suggesting next steps.');
   }
 
-  return normalizeSuggestionsResponse(response);
+  // return normalizeSuggestionsResponse(response);
+  return response;
 }
 
 export async function selectSuggestion(
@@ -241,54 +242,55 @@ export async function setLLMConfig(
   });
 }
 
-function normalizeSuggestionsResponse(
-  response: INextStepSuggestionsBackendResponse
-): INextStepSuggestionsResponse {
-  const metadata = {
-    source: response.metadata?.source ?? 'llm',
-    contextReceived: response.metadata?.contextReceived ?? false
-  };
-
-  return {
-    status: response.status,
-    suggestions: response.suggestions.map((suggestion, index) =>
-      normalizeSuggestion(suggestion, index, metadata.source)
-    ),
-    metadata
-  };
-}
-
-function normalizeSuggestion(
-  suggestion: IBackendSuggestion,
-  index: number,
-  metadataSource: string
-): ISuggestion {
-  const fallbackTitle = `Suggestion ${index + 1}`;
-  const title = normalizeText(
-    suggestion.title ?? suggestion.description,
-    fallbackTitle
-  );
-  const description = normalizeText(suggestion.description, title);
-  const cellType = normalizeText(suggestion.cellType, 'code');
-  const content = normalizeText(suggestion.content, '');
-
-  return {
-    id: normalizeText(suggestion.id, `suggestion-${index + 1}`),
-    title,
-    description,
-    cellType,
-    content,
-    metadata: {
-      source: normalizeText(suggestion.metadata?.source, metadataSource)
-    }
-  };
-}
-
-function normalizeText(value: string | undefined, fallback: string): string {
-  if (typeof value !== 'string') {
-    return fallback;
-  }
-
-  const trimmed = value.trim();
-  return trimmed || fallback;
-}
+// // 把后端返回的可能不完整、格式不规范的数据，转换成前端可以安全使用的标准格式。
+// function normalizeSuggestionsResponse(
+//   response: INextStepSuggestionsBackendResponse
+// ): INextStepSuggestionsResponse {
+//   const metadata = {
+//     source: response.metadata?.source ?? 'llm',
+//     contextReceived: response.metadata?.contextReceived ?? false
+//   };
+//
+//   return {
+//     status: response.status,
+//     suggestions: response.suggestions.map((suggestion, index) =>
+//       normalizeSuggestion(suggestion, index, metadata.source)
+//     ),
+//     metadata
+//   };
+// }
+//
+// function normalizeSuggestion(
+//   suggestion: IBackendSuggestion,
+//   index: number,
+//   metadataSource: string
+// ): ISuggestion {
+//   const fallbackTitle = `Suggestion ${index + 1}`;
+//   const title = normalizeText(
+//     suggestion.title ?? suggestion.description,
+//     fallbackTitle
+//   );
+//   const description = normalizeText(suggestion.description, title);
+//   const cellType = normalizeText(suggestion.cellType, 'code');
+//   const content = normalizeText(suggestion.content, '');
+//
+//   return {
+//     id: normalizeText(suggestion.id, `suggestion-${index + 1}`),
+//     title,
+//     description,
+//     cellType,
+//     content,
+//     metadata: {
+//       source: normalizeText(suggestion.metadata?.source, metadataSource)
+//     }
+//   };
+// }
+//
+// function normalizeText(value: string | undefined, fallback: string): string {
+//   if (typeof value !== 'string') {
+//     return fallback;
+//   }
+//
+//   const trimmed = value.trim();
+//   return trimmed || fallback;
+// }
