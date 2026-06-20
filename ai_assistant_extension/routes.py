@@ -168,16 +168,32 @@ class SuggestNextStepsHandler(APIHandler):
 
         raw_suggestions = suggest_next_cell(cell_source, previous_cells, next_cells)
 
+        if isinstance(raw_suggestions, dict):
+            raw_suggestion_items = raw_suggestions.get("suggestions", [])
+        elif isinstance(raw_suggestions, list):
+            raw_suggestion_items = raw_suggestions
+        else:
+            raw_suggestion_items = []
+
         suggestions = []
-        for index, suggestion in enumerate(raw_suggestions):
+        for index, suggestion in enumerate(raw_suggestion_items):
+            if isinstance(suggestion, dict):
+                suggestion_title = suggestion.get("title", "")
+                # suggestion_description = suggestion.get("description", suggestion_title)
+                suggestion_cell_type = suggestion.get("cellType", "code")
+            else:
+                suggestion_title = str(suggestion)
+                suggestion_description = suggestion_title
+                suggestion_cell_type = "code"
+
             suggestions.append({
                 "id": f"suggestion-{index + 1}",
-                "title": str(suggestion),
-                "description": str(suggestion),
-                "cellType": "code",
+                "title": suggestion_title,
+                "description": suggestion_cell_type,
+                "cellType": suggestion_cell_type,
                 "content": "# TODO: generate cell content here",
                 "metadata": {
-                    "source": "rule-based"
+                    "source": "llm"
                 }
             })
 
@@ -185,7 +201,7 @@ class SuggestNextStepsHandler(APIHandler):
             "status": "success",
             "suggestions": suggestions,
             "metadata": {
-                "source": "rule-based",
+                "source": "llm",
                 "contextReceived": bool(context)
             }
         }))
@@ -410,6 +426,5 @@ def setup_route_handlers(web_app):
     ]
 
     web_app.add_handlers(host_pattern, handlers)
-
 
 
