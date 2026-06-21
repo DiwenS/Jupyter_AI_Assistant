@@ -298,6 +298,7 @@ class AIAssistantPanel extends Widget {
         cacheStatus.textContent = 'No cache yet.';
       }
     }
+    // 无意义注释
 
     const notebookName = current.context.path;
     const cellCount = model.cells.length;
