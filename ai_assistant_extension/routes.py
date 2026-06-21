@@ -109,15 +109,14 @@ class SummarizeCellHandler(APIHandler):
         if not cell_source:
             cell_source = data.get("cell_source", "")
 
-        result = summarize_cell(cell_source)
+        summary = summarize_cell(cell_source)
 
         self.finish(json.dumps({
             "status": "success",
             "cellId": cell_id,
             "cellIndex": cell_index,
             "cellType": cell_type,
-            "title": result.get("title", ""),
-            "summary": result.get("summary", "No AI summary generated"),
+            "summary": summary,
             "details": "",
             "metadata": {
                 "source": "rule-based"
@@ -168,32 +167,16 @@ class SuggestNextStepsHandler(APIHandler):
 
         raw_suggestions = suggest_next_cell(cell_source, previous_cells, next_cells)
 
-        if isinstance(raw_suggestions, dict):
-            raw_suggestion_items = raw_suggestions.get("suggestions", [])
-        elif isinstance(raw_suggestions, list):
-            raw_suggestion_items = raw_suggestions
-        else:
-            raw_suggestion_items = []
-
         suggestions = []
-        for index, suggestion in enumerate(raw_suggestion_items):
-            if isinstance(suggestion, dict):
-                suggestion_title = suggestion.get("suggestion", "")
-                # suggestion_description = suggestion.get("description", suggestion_title)
-                suggestion_cell_type = suggestion.get("cellType", "code")
-            else:
-                suggestion_title = str(suggestion)
-                suggestion_description = suggestion_title
-                suggestion_cell_type = "code"
-
+        for index, suggestion in enumerate(raw_suggestions):
             suggestions.append({
                 "id": f"suggestion-{index + 1}",
-                "title": suggestion_title,
-                "description": suggestion_cell_type,
-                "cellType": suggestion_cell_type,
+                "title": str(suggestion),
+                "description": str(suggestion),
+                "cellType": "code",
                 "content": "# TODO: generate cell content here",
                 "metadata": {
-                    "source": "llm"
+                    "source": "rule-based"
                 }
             })
 
@@ -201,7 +184,7 @@ class SuggestNextStepsHandler(APIHandler):
             "status": "success",
             "suggestions": suggestions,
             "metadata": {
-                "source": "llm",
+                "source": "rule-based",
                 "contextReceived": bool(context)
             }
         }))
@@ -251,11 +234,8 @@ class SelectSuggestionHandler(APIHandler):
             }))
             return
 
-        context = data.get("context") or {}
-        if not isinstance(context, dict):
-            context = {}
-        previous_cells = context.get("previousCells", []) or []
-        next_cells = context.get("nextCells", []) or []
+        previous_cells = data.get("context", []).get("previousCells", [])
+        next_cells = data.get("context", []).get("nextCells", [])
 
         # print("⬇️ Selected cell previous context1 ⬇️")
         # print(previous_cells)
@@ -426,5 +406,6 @@ def setup_route_handlers(web_app):
     ]
 
     web_app.add_handlers(host_pattern, handlers)
+
 
 
