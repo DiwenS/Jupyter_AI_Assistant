@@ -10,21 +10,20 @@ import { Widget } from '@lumino/widgets';
 import { ServerConnection } from '@jupyterlab/services';
 import {
   ICellDescriptor,
+  ICellSummaryData,
+  ICellSummaryResponse,
+  INextStepContext,
   ISuggestion,
   ITreeNode,
   summarizeCell,
   suggestNextSteps,
   selectSuggestion
 } from './api';
-import {
-  createSettingsHTML,
-  createSettingsCSS,
-  bindSettingsEvents
-} from './settings';
 
 // Tree 中 node summary 的两种显示方式：固定显示或 hover 悬浮显示。
 type SummaryDisplayMode = 'fixed' | 'hover';
 type GeneratedCellType = 'code' | 'markdown' | 'raw';
+const ROOT_TREE_PARENT_ID = 'ROOT';
 type IGeneratedCellData = (
   | Partial<nbformat.ICodeCell>
   | Partial<nbformat.IMarkdownCell>
@@ -38,7 +37,7 @@ class AIAssistantPanel extends Widget {
   private notebookTracker: INotebookTracker;
   //添加serversetting方便之后调用 summarizeCell(this.serverSettings, cell)
   private serverSettings: ServerConnection.ISettings;
-  private summaries = new Map<string, string>();
+  private summaries = new Map<string, ICellSummaryData>();
 
   //AI next button 需要的 suggestions 数据结构，key 是 cellId，value 是对应的建议列表。
   private suggestions = new Map<string, ISuggestion[]>();
@@ -47,6 +46,7 @@ class AIAssistantPanel extends Widget {
   // selected/generated suggestion state uses sourceCellId + suggestionId as key.
   private generatedSuggestions = new Map<string, ISuggestion>(); // 储存后端返回的带真实 content 的 suggestion
   private generatedCellIds = new Map<string, string>(); // source cellId + suggestionId -> generated child cell id
+  private observedPanels = new Set<NotebookPanel>();
 
   // 保存用户当前选择的 summary 显示模式，重新渲染 tree 时保持一致。
   private summaryDisplayMode: SummaryDisplayMode = 'fixed';
@@ -80,9 +80,12 @@ class AIAssistantPanel extends Widget {
     this.notebookTracker.currentChanged.connect(() => {
       this.summaries.clear();
       this.suggestions.clear();
+      this.generatedSuggestions.clear();
+      this.generatedCellIds.clear();
 
       const current = this.notebookTracker.currentWidget;
       if (current) {
+        this.observePanelChanges(current);
         // context.ready 确保 .ipynb 文件已经从磁盘读入 model
         void current.context.ready.then(() => {
           this.loadCacheFromNotebook();
@@ -96,7 +99,6 @@ class AIAssistantPanel extends Widget {
 
   private render(): void {
     this.node.innerHTML = `
-      <style>${createSettingsCSS()}</style>
       <div class="jp-ai-assistant-root">
         <h2>AI Notebook Assistant</h2>
 
@@ -112,11 +114,7 @@ class AIAssistantPanel extends Widget {
           Clear cache
         </button>
 
-        <div id="cache-status" style="font-size:12px;margin:4px 0;color:#2196f3;"></div>
-
-        ${createSettingsHTML()}
-
-        <hr />
+        <div id="cache-status" style="font-size:12px;margin:4px 0;color:#2196f3;"></div>        <hr />
         
         <h3>Current Notebook</h3>
         <div id="notebook-info">
@@ -248,9 +246,6 @@ class AIAssistantPanel extends Widget {
     };
 
     this.updateTreeZoomControls();
-
-    // 绑定 LLM 设置面板事件
-    bindSettingsEvents(this.node, this.serverSettings);
   }
 
   // 读取 notebook，刷新基本信息、cell summary 列表和可视化 tree。
@@ -287,6 +282,7 @@ class AIAssistantPanel extends Widget {
     }
 
     this.hydrateGeneratedCellRelations();
+    this.pruneMissingGeneratedCells();
 
     // 更新缓存状态
     const cacheStatus = this.node.querySelector('#cache-status') as HTMLElement | null;
@@ -320,11 +316,14 @@ class AIAssistantPanel extends Widget {
       const cellType = cell.type;
 
       const cellId = `${current.context.path}:${cell.id}`;
-      const summary = this.summaries.get(cellId) || 'No summary generated yet.';
+      const summaryData = this.getSummaryData(cellId);
+      const title = summaryData?.title || 'No title generated yet.';
+      const summary = summaryData?.summary || 'No summary generated yet.';
 
       items.push(`
         <li>
           <b>[${i}] ${cellType}</b><br />
+          <p><b>Title:</b> ${this.escapeHtml(title)}</p>
           <p><b>Summary:</b> ${this.escapeHtml(summary)}</p>
         </li>
       `);
@@ -334,7 +333,9 @@ class AIAssistantPanel extends Widget {
 
     const treeNodes: string[] = [];
     const generatedCellIdSet = new Set(this.generatedCellIds.values());
+    const childCellIdSet = this.getTreeChildCellIds(current);
     const renderTreeNode = (
+      cellId: string,
       cellIndex: number,
       cellType: string,
       summary: string,
@@ -357,15 +358,15 @@ class AIAssistantPanel extends Widget {
       const fixedSummaryMarkup =
         this.summaryDisplayMode === 'fixed'
           ? `<div class="jp-ai-assistant-tree-node-summary-fixed">${this.escapeHtml(
-              summary
-            )}</div>`
+            summary
+          )}</div>`
           : '';
       // Hover 模式：summary 作为 tooltip，鼠标悬浮或键盘 focus 时显示。
       const hoverSummaryMarkup =
         this.summaryDisplayMode === 'hover'
           ? `<div class="jp-ai-assistant-tree-node-tooltip">${this.escapeHtml(
-              summary
-            )}</div>`
+            summary
+          )}</div>`
           : '';
 
       return `
@@ -374,7 +375,9 @@ class AIAssistantPanel extends Widget {
             class="jp-ai-assistant-tree-node-button${nodeShapeClass}"
             type="button"
             data-cell-index="${cellIndex}"
+            data-cell-id="${this.escapeHtml(cellId)}"
             data-cell-type="${this.escapeHtml(normalizedCellType)}"
+            draggable="true"
             title="Jump to cell ${cellIndex}"
           >
             <span>${cellIndex}</span>
@@ -386,19 +389,19 @@ class AIAssistantPanel extends Widget {
       `;
     };
 
-    // 将 notebook 中每个非 generated cell 转成一个 tree node。
-    // generated cells 会作为 source cell 的子节点显示，避免重复出现在主干上。
+    // 将没有 parent 的 cell 作为主干节点；有 parent 的节点递归显示为子节点。
     for (let i = 0; i < cellCount; i++) {
       const cell = model.cells.get(i);
       const cellId = `${current.context.path}:${cell.id}`;
 
-      if (generatedCellIdSet.has(cellId)) {
+      if (childCellIdSet.has(cellId)) {
         continue;
       }
 
       const cellType = cell.type;
-      const summary = this.summaries.get(cellId) || 'No summary generated yet.';
-      const childNodes = this.renderGeneratedChildTreeNodes(
+      const summary =
+        this.getSummaryData(cellId)?.summary || 'No summary generated yet.';
+      const childNodes = this.renderChildTreeNodes(
         current,
         cellId,
         renderTreeNode
@@ -406,7 +409,7 @@ class AIAssistantPanel extends Widget {
 
       treeNodes.push(`
         <div class="jp-ai-assistant-tree-family">
-          ${renderTreeNode(i, cellType, summary, false)}
+          ${renderTreeNode(cellId, i, cellType, summary, generatedCellIdSet.has(cellId))}
           ${childNodes}
         </div>
       `);
@@ -418,7 +421,7 @@ class AIAssistantPanel extends Widget {
           class="jp-ai-assistant-tree-canvas"
           style="transform: scale(${this.treeZoom}); width: ${100 / this.treeZoom}%"
         >
-          <div class="jp-ai-assistant-tree-root">
+          <div class="jp-ai-assistant-tree-root" data-tree-root="true">
             <span>Root</span>
             <strong>${this.escapeHtml(notebookName)}</strong>
             <small>${cellCount} cells</small>
@@ -444,6 +447,7 @@ class AIAssistantPanel extends Widget {
           }
         };
       });
+    this.attachTreeDragHandlers(notebookTree);
 
     // 给每个 cell 添加 AI next button。
     this.attachAInextButtons();
@@ -452,10 +456,11 @@ class AIAssistantPanel extends Widget {
     this.syncCellSuggestions();
   }
 
-  private renderGeneratedChildTreeNodes(
+  private renderChildTreeNodes(
     panel: NotebookPanel,
     sourceCellId: string,
     renderTreeNode: (
+      cellId: string,
       cellIndex: number,
       cellType: string,
       summary: string,
@@ -472,38 +477,51 @@ class AIAssistantPanel extends Widget {
 
     visitedCellIds.add(sourceCellId);
 
-    this.generatedCellIds.forEach((generatedCellId, suggestionKey) => {
-      if (!suggestionKey.startsWith(`${sourceCellId}::`)) {
-        return;
+    for (let index = 0; index < model.cells.length; index++) {
+      const childCell = model.cells.get(index);
+      const childCellId = `${panel.context.path}:${childCell.id}`;
+      const parentId = this.getContextTreeParentId(childCellId);
+
+      if (
+        parentId !== sourceCellId ||
+        visitedCellIds.has(childCellId)
+      ) {
+        continue;
       }
 
-      const generatedCellIndex = this.findCellIndexByCellId(
-        panel,
-        generatedCellId
-      );
+      const generatedCellIndex = this.findCellIndexByCellId(panel, childCellId);
 
       if (generatedCellIndex < 0) {
-        return;
+        continue;
       }
 
       const generatedCell = model.cells.get(generatedCellIndex);
-      const generatedSuggestion = this.generatedSuggestions.get(suggestionKey);
+      const generatedSuggestion =
+        this.findGeneratedSuggestionByCellId(childCellId);
       const summary =
-        generatedSuggestion?.title || 'Generated from selected suggestion.';
-      const nestedChildNodes = this.renderGeneratedChildTreeNodes(
+        generatedSuggestion?.title ||
+        this.getSummaryData(childCellId)?.summary ||
+        'No summary generated yet.';
+      const nestedChildNodes = this.renderChildTreeNodes(
         panel,
-        generatedCellId,
+        childCellId,
         renderTreeNode,
         new Set(visitedCellIds)
       );
 
       childNodes.push(`
         <div class="jp-ai-assistant-tree-family">
-          ${renderTreeNode(generatedCellIndex, generatedCell.type, summary, true)}
+          ${renderTreeNode(
+        childCellId,
+        generatedCellIndex,
+        generatedCell.type,
+        summary,
+        this.isGeneratedCellId(childCellId)
+      )}
           ${nestedChildNodes}
         </div>
       `);
-    });
+    }
 
     if (childNodes.length === 0) {
       return '';
@@ -516,6 +534,180 @@ class AIAssistantPanel extends Widget {
     `;
   }
 
+  // 收集所有有 parent 的 cell，渲染主干时避免重复显示。
+  private getTreeChildCellIds(panel: NotebookPanel): Set<string> {
+    const childCellIds = new Set<string>();
+    const model = panel.content.model;
+
+    if (!model) {
+      return childCellIds;
+    }
+
+    const existingCellIds = new Set<string>();
+
+    for (let index = 0; index < model.cells.length; index++) {
+      const cell = model.cells.get(index);
+      existingCellIds.add(`${panel.context.path}:${cell.id}`);
+    }
+
+    for (let index = 0; index < model.cells.length; index++) {
+      const cell = model.cells.get(index);
+      const cellId = `${panel.context.path}:${cell.id}`;
+      const parentId = this.getContextTreeParentId(cellId);
+
+      if (
+        parentId !== ROOT_TREE_PARENT_ID &&
+        parentId !== cellId &&
+        existingCellIds.has(parentId)
+      ) {
+        childCellIds.add(cellId);
+      }
+    }
+
+    return childCellIds;
+  }
+
+  // 根据 generated cell id 找到对应 suggestion，用于显示生成节点标题。
+  private findGeneratedSuggestionByCellId(cellId: string): ISuggestion | undefined {
+    for (const [suggestionKey, generatedCellId] of this.generatedCellIds) {
+      if (generatedCellId === cellId) {
+        return this.generatedSuggestions.get(suggestionKey);
+      }
+    }
+
+    return undefined;
+  }
+
+  // 给 tree node 绑定拖拽事件，拖到另一个 node 上时更新 tree parent metadata。
+  private attachTreeDragHandlers(notebookTree: HTMLElement): void {
+    const rootNode = notebookTree.querySelector<HTMLElement>(
+      '.jp-ai-assistant-tree-root[data-tree-root]'
+    );
+
+    if (rootNode) {
+      rootNode.ondragover = event => {
+        event.preventDefault();
+        rootNode.classList.add('jp-ai-assistant-tree-root-drop-target');
+      };
+
+      rootNode.ondragleave = () => {
+        rootNode.classList.remove('jp-ai-assistant-tree-root-drop-target');
+      };
+
+      rootNode.ondrop = event => {
+        event.preventDefault();
+        rootNode.classList.remove('jp-ai-assistant-tree-root-drop-target');
+
+        const draggedCellId = event.dataTransfer?.getData('text/plain');
+
+        if (draggedCellId) {
+          this.reparentTreeNode(draggedCellId, null);
+        }
+      };
+    }
+
+    notebookTree
+      .querySelectorAll<HTMLButtonElement>('.jp-ai-assistant-tree-node-button')
+      .forEach(button => {
+        button.ondragstart = event => {
+          if (!button.dataset.cellId) {
+            return;
+          }
+
+          event.dataTransfer?.setData('text/plain', button.dataset.cellId);
+          event.dataTransfer?.setDragImage(button, 28, 28);
+        };
+
+        button.ondragover = event => {
+          event.preventDefault();
+          button.classList.add('jp-ai-assistant-tree-node-drop-target');
+        };
+
+        button.ondragleave = () => {
+          button.classList.remove('jp-ai-assistant-tree-node-drop-target');
+        };
+
+        button.ondrop = event => {
+          event.preventDefault();
+          button.classList.remove('jp-ai-assistant-tree-node-drop-target');
+
+          const draggedCellId = event.dataTransfer?.getData('text/plain');
+          const targetCellId = button.dataset.cellId;
+
+          if (draggedCellId && targetCellId) {
+            this.reparentTreeNode(draggedCellId, targetCellId);
+          }
+        };
+      });
+  }
+
+  // 写入手动 tree parent，避免把节点拖成自己的子孙节点。
+  private reparentTreeNode(childCellId: string, parentCellId: string | null): void {
+    const current = this.notebookTracker.currentWidget;
+    const model = current?.content.model;
+
+    if (!current || !model || childCellId === parentCellId) {
+      return;
+    }
+
+    if (
+      parentCellId &&
+      this.isTreeDescendant(current, parentCellId, childCellId)
+    ) {
+      this.statusMessage = 'Cannot move a node under its own child.';
+      this.updateNotebookInfo();
+      return;
+    }
+
+    const childIndex = this.findCellIndexByCellId(current, childCellId);
+
+    if (childIndex < 0) {
+      return;
+    }
+
+    const childCell = model.cells.get(childIndex);
+    childCell.sharedModel.setMetadata(
+      'ai_assistant_tree_parent_cell_id',
+      parentCellId ? this.getRawCellId(parentCellId) : ''
+    );
+    this.statusMessage = parentCellId
+      ? `Moved cell ${childIndex} under another tree node.`
+      : `Moved cell ${childIndex} under Root.`;
+    void current.context.save();
+    this.updateNotebookInfo();
+  }
+
+  // 判断 candidate 是否已经是 source 的子孙，防止拖拽后形成循环树。
+  private isTreeDescendant(
+    panel: NotebookPanel,
+    candidateCellId: string,
+    sourceCellId: string
+  ): boolean {
+    const model = panel.content.model;
+
+    if (!model) {
+      return false;
+    }
+
+    for (let index = 0; index < model.cells.length; index++) {
+      const cell = model.cells.get(index);
+      const cellId = `${panel.context.path}:${cell.id}`;
+
+      if (this.getContextTreeParentId(cellId) !== sourceCellId) {
+        continue;
+      }
+
+      if (
+        cellId === candidateCellId ||
+        this.isTreeDescendant(panel, candidateCellId, cellId)
+      ) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
   private updateStatusMessage(): void {
     const status = this.node.querySelector(
       '#ai-assistant-status'
@@ -524,6 +716,45 @@ class AIAssistantPanel extends Widget {
     if (status) {
       status.textContent = this.statusMessage || 'Ready.';
     }
+  }
+
+  // 监听 notebook 内容变化，同步删除/插入 cell 后的前端状态。
+  private observePanelChanges(panel: NotebookPanel): void {
+    if (this.observedPanels.has(panel)) {
+      return;
+    }
+
+    this.observedPanels.add(panel);
+    panel.content.modelContentChanged.connect(() => {
+      this.pruneMissingGeneratedCells();
+      this.updateNotebookInfo();
+    });
+  }
+
+  // 清理已被用户删除的 generated cell，避免 suggestion 继续误高亮。
+  private pruneMissingGeneratedCells(): void {
+    const current = this.notebookTracker.currentWidget;
+    const model = current?.content.model;
+
+    if (!current || !model) {
+      return;
+    }
+
+    const existingCellIds = new Set<string>();
+
+    for (let index = 0; index < model.cells.length; index++) {
+      const cell = model.cells.get(index);
+      existingCellIds.add(`${current.context.path}:${cell.id}`);
+    }
+
+    this.generatedCellIds.forEach((generatedCellId, suggestionKey) => {
+      if (existingCellIds.has(generatedCellId)) {
+        return;
+      }
+
+      this.generatedCellIds.delete(suggestionKey);
+      this.generatedSuggestions.delete(suggestionKey);
+    });
   }
 
   // notebook 中选中 cell 后，自动把侧边栏 tree 中对应 node 滚动到可见区域。
@@ -612,16 +843,164 @@ class AIAssistantPanel extends Widget {
 
     for (let i = 0; i < model.cells.length; i++) {
       const cell = model.cells.get(i);
+      const cellId = `${current.context.path}:${cell.id}`;
+      const summaryData = this.getSummaryData(cellId);
 
       cells.push({
-        cellId: `${current.context.path}:${cell.id}`,
+        cellId,
         cellIndex: i,
         cellType: cell.type,
-        source: cell.sharedModel.getSource()
+        source: cell.sharedModel.getSource(),
+        title: summaryData?.title,
+        summary: summaryData?.summary
       });
     }
 
     return cells;
+  }
+
+  // 复用 suggest-next-steps 的 context 格式，给后端提供当前 notebook 上下文。
+  private buildNotebookContext(cellIndex: number): INextStepContext {
+    const cells = this.getCurrentCells();
+    const tree = this.buildContextTree(cells);
+    // 限制前后cell的最大传输数量
+    return {
+      //previousCells: cellsWithSummaries.slice(0, cellIndex),
+      previousCells: cells.slice(Math.max(0, cellIndex - 5), cellIndex),
+      //nextCells: cellsWithSummaries.slice(cellIndex + 1),
+      nextCells: cells.slice(cellIndex + 1, cellIndex + 4),
+      tree
+    };
+  }
+
+  // 构造真正的 tree context：根节点在第一层，子节点放进 parent 的 children。
+  private buildContextTree(cells: ICellDescriptor[]): ITreeNode[] {
+    const nodeMap = new Map<string, ITreeNode>();
+    const rootNodes: ITreeNode[] = [];
+
+    cells.forEach(cell => {
+      const parentId = this.getContextTreeParentId(cell.cellId);
+
+      nodeMap.set(cell.cellId, {
+        id: cell.cellId,
+        cellIndex: cell.cellIndex,
+        cellType: cell.cellType,
+        title: cell.title,
+        summary: cell.summary,
+        isGenerated: this.isGeneratedCellId(cell.cellId),
+        parentId,
+        children: []
+      });
+    });
+
+    nodeMap.forEach(node => {
+      const parentNode =
+        node.parentId === ROOT_TREE_PARENT_ID
+          ? undefined
+          : nodeMap.get(node.parentId);
+
+      if (!parentNode || parentNode.id === node.id) {
+        rootNodes.push(node);
+        return;
+      }
+
+      parentNode.children = parentNode.children ?? [];
+      parentNode.children.push(node);
+    });
+
+    return rootNodes;
+  }
+
+  // 从 cell metadata 读取 tree parent，用完整 cell id 返回给后端。
+  private getContextTreeParentId(cellId: string): string {
+    const current = this.notebookTracker.currentWidget;
+    const model = current?.content.model;
+
+    if (!current || !model) {
+      return ROOT_TREE_PARENT_ID;
+    }
+
+    const cellIndex = this.findCellIndexByCellId(current, cellId);
+
+    if (cellIndex < 0) {
+      return ROOT_TREE_PARENT_ID;
+    }
+
+    const metadata = model.cells.get(cellIndex).sharedModel.getMetadata();
+    const manualParentRawCellId = metadata.ai_assistant_tree_parent_cell_id;
+    const generatedParentRawCellId = metadata.ai_assistant_parent_cell_id;
+    const parentRawCellId =
+      typeof manualParentRawCellId === 'string'
+        ? manualParentRawCellId
+        : generatedParentRawCellId;
+
+    if (typeof parentRawCellId !== 'string' || !parentRawCellId) {
+      return ROOT_TREE_PARENT_ID;
+    }
+
+    return `${current.context.path}:${parentRawCellId}`;
+  }
+
+  // 标记 context tree 中哪些节点是由 suggestion 生成的 cell。
+  private isGeneratedCellId(cellId: string): boolean {
+    return Array.from(this.generatedCellIds.values()).includes(cellId);
+  }
+
+  // 兼容后端返回 object、JSON 字符串和旧版纯文本 summary。
+  private normalizeSummaryData(rawSummary: unknown): ICellSummaryData {
+    if (typeof rawSummary === 'object' && rawSummary !== null) {
+      const summaryObject = rawSummary as Record<string, unknown>;
+      return {
+        title: this.limitSummaryTitle(
+          typeof summaryObject.title === 'string' ? summaryObject.title : ''
+        ),
+        summary:
+          typeof summaryObject.summary === 'string'
+            ? summaryObject.summary
+            : ''
+      };
+    }
+
+    if (typeof rawSummary === 'string') {
+      try {
+        return this.normalizeSummaryData(JSON.parse(rawSummary));
+      } catch {
+        return {
+          title: '',
+          summary: rawSummary
+        };
+      }
+    }
+
+    return {
+      title: '',
+      summary: ''
+    };
+  }
+
+  // 兼容 title/summary 位于 response 顶层，或 summary 字段内部为 JSON 的两种格式。
+  private normalizeSummaryResponse(
+    response: ICellSummaryResponse
+  ): ICellSummaryData {
+    const summaryData = this.normalizeSummaryData(response.summary);
+    const title =
+      typeof response.title === 'string' && response.title.trim()
+        ? response.title
+        : summaryData.title;
+
+    return {
+      title: this.limitSummaryTitle(title),
+      summary: summaryData.summary
+    };
+  }
+
+  private getSummaryData(cellId: string): ICellSummaryData | undefined {
+    return this.summaries.get(cellId);
+  }
+
+  // 前端兜底限制 title 最多 5 个单词，和后端约定保持一致。
+  private limitSummaryTitle(title: string): string {
+    return title.trim().split(/\s+/).filter(Boolean).slice(0, 5).join(' ');
   }
 
   // ── 从 notebook metadata 加载缓存 ───────────────────────────────────
@@ -652,17 +1031,10 @@ class AIAssistantPanel extends Widget {
 
     if (meta.summaries) {
       for (const [rawCellId, summary] of Object.entries(meta.summaries)) {
-        // 防御性处理：旧版本/异常响应可能写入过非字符串的脏数据，
-        // 这里过滤掉，避免污染 escapeHtml 等下游字符串操作。
-        if (typeof summary === 'string') {
-          this.summaries.set(`${notebookPath}:${rawCellId}`, summary);
-        } else {
-          console.warn(
-            '[AI Assistant] loadCache: skipping non-string summary for',
-            rawCellId,
-            summary
-          );
-        }
+        this.summaries.set(
+          `${notebookPath}:${rawCellId}`,
+          this.normalizeSummaryData(summary)
+        );
       }
     }
 
@@ -685,7 +1057,7 @@ class AIAssistantPanel extends Widget {
 
     const notebookPath = current.context.path;
 
-    const summariesPlain: Record<string, string> = {};
+    const summariesPlain: Record<string, ICellSummaryData> = {};
     this.summaries.forEach((summary, cellId) => {
       if (cellId.startsWith(`${notebookPath}:`)) {
         const rawCellId = this.getRawCellId(cellId);
@@ -721,7 +1093,10 @@ class AIAssistantPanel extends Widget {
 
     for (const cell of cells) {
       const response = await summarizeCell(this.serverSettings, cell);
-      this.summaries.set(cell.cellId, response.summary);
+      const summaryData = this.normalizeSummaryResponse(response);
+      console.log('[AI Assistant] summarize-cell response:', response);
+      console.log('[AI Assistant] normalized summary data:', summaryData);
+      this.summaries.set(cell.cellId, summaryData);
     }
     this.saveCacheToNotebook();
     this.updateNotebookInfo();
@@ -798,25 +1173,25 @@ class AIAssistantPanel extends Widget {
     this.statusMessage = `Generating next-step suggestion for cell ${cellIndex}.`;
     this.updateNotebookInfo();
 
-    const cellsWithSummaries = cells.map(cells => ({
-      ...cells,
-      summary: this.summaries.get(cells.cellId)
-    }));
+    const context = this.buildNotebookContext(cellIndex);
+    const response = await suggestNextSteps(
+      this.serverSettings,
+      selectedCell,
+      context
+    );
 
-    const tree: ITreeNode[] = cellsWithSummaries.map(cell => ({
-      id: cell.cellId,
-      cellIndex: cell.cellIndex,
-      cellType: cell.cellType,
-      summary: cell.summary
-    }));
-
-    const response = await suggestNextSteps(this.serverSettings, selectedCell, {
-      previousCells: cellsWithSummaries.slice(0, cellIndex),
-      nextCells: cellsWithSummaries.slice(cellIndex + 1),
-      tree
-    });
-
-    this.suggestions.set(selectedCell.cellId, response.suggestions);
+    // 重新请求 AI Next 时，只保留仍有关联 generated cell 的旧 suggestions。
+    this.pruneMissingGeneratedCells();
+    const generatedSuggestions = this.getGeneratedSuggestionsForCell(
+      selectedCell.cellId
+    );
+    const nextSuggestions = response.suggestions.map((suggestion, index) =>
+      this.withClientSuggestionKey(selectedCell.cellId, suggestion, index)
+    );
+    this.suggestions.set(selectedCell.cellId, [
+      ...generatedSuggestions,
+      ...nextSuggestions
+    ]);
     const savedSuggestions = this.suggestions.get(selectedCell.cellId) ?? [];
     this.pendingSuggestionCellID = '';
     this.statusMessage = `Generated ${savedSuggestions.length} suggestions for cell ${cellIndex}.`;
@@ -874,7 +1249,10 @@ class AIAssistantPanel extends Widget {
 
           if (
             this.generatedCellIds.has(
-              this.createSuggestionKey(cell.cellId, suggestion.id)
+              this.createSuggestionKey(
+                cell.cellId,
+                this.getSuggestionIdentity(suggestion)
+              )
             )
           ) {
             option.classList.add('jp-ai-assistant-suggestion-option-selected');
@@ -904,39 +1282,147 @@ class AIAssistantPanel extends Widget {
 
           panel.appendChild(option);
         });
+
+        // 允许用户在 AI suggestions 之外手动补充一条 suggestion。
+        this.renderCustomSuggestionInput(panel, cell);
       });
     }, 0);
+  }
+
+  private renderCustomSuggestionInput(
+    panel: HTMLDivElement,
+    cell: ICellDescriptor
+  ): void {
+    const customRow = document.createElement('div');
+    customRow.className = 'jp-ai-assistant-custom-suggestion';
+
+    const inputGroup = document.createElement('div');
+    inputGroup.className = 'jp-ai-assistant-custom-suggestion-fields';
+
+    const titleInput = document.createElement('input');
+    titleInput.type = 'text';
+    titleInput.className = 'jp-ai-assistant-custom-suggestion-input';
+    titleInput.placeholder = 'Suggestion title';
+    titleInput.dataset.lmSuppressShortcuts = 'true';
+
+    const descriptionInput = document.createElement('input');
+    descriptionInput.type = 'text';
+    descriptionInput.className = 'jp-ai-assistant-custom-suggestion-input';
+    descriptionInput.placeholder = 'Suggestion description';
+    descriptionInput.dataset.lmSuppressShortcuts = 'true';
+
+    const addButton = document.createElement('button');
+    addButton.type = 'button';
+    addButton.className = 'jp-ai-assistant-custom-suggestion-button';
+    addButton.textContent = 'Add';
+    addButton.dataset.lmSuppressShortcuts = 'true';
+
+    const addCustomSuggestion = () => {
+      const customTitle = titleInput.value.trim();
+      const customDescription = descriptionInput.value.trim();
+
+      if (!customTitle && !customDescription) {
+        return;
+      }
+
+      this.addCustomSuggestionForCell(cell, customTitle, customDescription);
+    };
+
+    const stopNotebookFocus = (event: MouseEvent) => {
+      event.stopPropagation();
+    };
+    const submitOnEnter = (event: KeyboardEvent) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        event.stopPropagation();
+        addCustomSuggestion();
+      }
+    };
+
+    titleInput.onmousedown = stopNotebookFocus;
+    descriptionInput.onmousedown = stopNotebookFocus;
+    titleInput.onkeydown = submitOnEnter;
+    descriptionInput.onkeydown = submitOnEnter;
+
+    addButton.onmousedown = event => {
+      event.preventDefault();
+      event.stopPropagation();
+    };
+
+    addButton.onclick = event => {
+      event.preventDefault();
+      event.stopPropagation();
+      addCustomSuggestion();
+    };
+
+    inputGroup.appendChild(titleInput);
+    inputGroup.appendChild(descriptionInput);
+    customRow.appendChild(inputGroup);
+    customRow.appendChild(addButton);
+    panel.appendChild(customRow);
+  }
+
+  // 将用户输入包装成后端 select-suggestion 接口可接收的 suggestion。
+  private addCustomSuggestionForCell(
+    cell: ICellDescriptor,
+    customTitle: string,
+    customDescription: string
+  ): void {
+    const title = customTitle || customDescription;
+    const description = customDescription || customTitle;
+    const customSuggestion = this.withClientSuggestionKey(
+      cell.cellId,
+      {
+        id: `user-suggestion-${Date.now()}`,
+        title,
+        description,
+        cellType: 'code',
+        content: '',
+        metadata: {
+          source: 'user'
+        }
+      },
+      0
+    );
+
+    this.suggestions.set(cell.cellId, [
+      ...(this.suggestions.get(cell.cellId) ?? []),
+      customSuggestion
+    ]);
+    this.statusMessage = 'Custom suggestion added.';
+    this.saveCacheToNotebook();
+    this.updateNotebookInfo();
   }
 
   private async selectSuggestionForCell(
     cell: ICellDescriptor,
     suggestion: ISuggestion
   ): Promise<void> {
-    const suggestionKey = this.createSuggestionKey(cell.cellId, suggestion.id);
+    const suggestionKey = this.createSuggestionKey(
+      cell.cellId,
+      this.getSuggestionIdentity(suggestion)
+    );
     this.pendingSuggestionCellID = cell.cellId;
     this.statusMessage = `Generating content for ${suggestion.id}.`;
     this.updateNotebookInfo();
 
-    // 复用 requestSuggestionsForCell 同款逻辑，附带 previous/next context，
-    // 否则后端生成内容时完全拿不到 notebook 上下文。
-    const cells = this.getCurrentCells();
-    const cellsWithSummaries = cells.map(c => ({
-      ...c,
-      summary: this.summaries.get(c.cellId)
-    }));
-
+    const context = this.buildNotebookContext(cell.cellIndex);
     const response = await selectSuggestion(
       this.serverSettings,
       cell,
       suggestion,
-      {
-        previousCells: cellsWithSummaries.slice(0, cell.cellIndex),
-        nextCells: cellsWithSummaries.slice(cell.cellIndex + 1)
-      }
+      context
     );
+    const generatedSuggestion = {
+      ...response.suggestion,
+      metadata: {
+        ...response.suggestion.metadata,
+        ai_assistant_suggestion_key: this.getSuggestionIdentity(suggestion)
+      }
+    };
 
-    this.generatedSuggestions.set(suggestionKey, response.suggestion);
-    await this.createOrUpdateGeneratedCell(cell, response.suggestion);
+    this.generatedSuggestions.set(suggestionKey, generatedSuggestion);
+    await this.createOrUpdateGeneratedCell(cell, generatedSuggestion);
     this.pendingSuggestionCellID = '';
     this.statusMessage = response.message;
     this.updateNotebookInfo();
@@ -956,7 +1442,7 @@ class AIAssistantPanel extends Widget {
     const cellData = this.createGeneratedCellData(sourceCell, suggestion);
     const suggestionKey = this.createSuggestionKey(
       sourceCell.cellId,
-      suggestion.id
+      this.getSuggestionIdentity(suggestion)
     );
     const existingGeneratedCellId = this.generatedCellIds.get(suggestionKey);
     const existingGeneratedCellIndex = existingGeneratedCellId
@@ -1018,9 +1504,13 @@ class AIAssistantPanel extends Widget {
 
       const parentCellId = `${current.context.path}:${parentRawCellId}`;
       const generatedCellId = `${current.context.path}:${cell.id}`;
+      const suggestionIdentity =
+        typeof metadata.ai_assistant_suggestion_key === 'string'
+          ? metadata.ai_assistant_suggestion_key
+          : suggestionId;
       const suggestionKey = this.createSuggestionKey(
         parentCellId,
-        suggestionId
+        suggestionIdentity
       );
       const suggestionTitle =
         typeof metadata.ai_assistant_suggestion_title === 'string'
@@ -1037,7 +1527,8 @@ class AIAssistantPanel extends Widget {
           cellType: cell.type,
           content: cell.sharedModel.getSource(),
           metadata: {
-            source: 'metadata'
+            source: 'metadata',
+            ai_assistant_suggestion_key: suggestionIdentity
           }
         });
       }
@@ -1046,6 +1537,59 @@ class AIAssistantPanel extends Widget {
 
   private createSuggestionKey(cellId: string, suggestionId: string): string {
     return `${cellId}::${suggestionId}`;
+  }
+
+  // 优先使用前端生成的唯一 key，避免后端复用 suggestion id 导致误高亮。
+  private getSuggestionIdentity(suggestion: ISuggestion): string {
+    const metadata = suggestion.metadata as Record<string, unknown>;
+    const clientKey = metadata.ai_assistant_suggestion_key;
+
+    return typeof clientKey === 'string' ? clientKey : suggestion.id;
+  }
+
+  // 给每次新返回的 suggestion 加唯一 key，用来区分不同批次建议。
+  private withClientSuggestionKey(
+    cellId: string,
+    suggestion: ISuggestion,
+    index: number
+  ): ISuggestion {
+    return {
+      ...suggestion,
+      metadata: {
+        ...suggestion.metadata,
+        ai_assistant_suggestion_key: `${this.getRawCellId(cellId)}-${Date.now()}-${index}-${suggestion.id}`
+      }
+    };
+  }
+
+  // 只保留仍然对应现存 generated cell 的旧 suggestions。
+  private getGeneratedSuggestionsForCell(cellId: string): ISuggestion[] {
+    return (this.suggestions.get(cellId) ?? []).filter(suggestion =>
+      this.generatedCellExists(cellId, this.getSuggestionIdentity(suggestion))
+    );
+  }
+
+  // 确认某条 suggestion 对应的 generated cell 是否仍在 notebook 中。
+  private generatedCellExists(cellId: string, suggestionId: string): boolean {
+    const current = this.notebookTracker.currentWidget;
+    const model = current?.content.model;
+    const generatedCellId = this.generatedCellIds.get(
+      this.createSuggestionKey(cellId, suggestionId)
+    );
+
+    if (!current || !model || !generatedCellId) {
+      return false;
+    }
+
+    for (let index = 0; index < model.cells.length; index++) {
+      const cell = model.cells.get(index);
+
+      if (`${current.context.path}:${cell.id}` === generatedCellId) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   private findGeneratedCellInsertIndex(
@@ -1093,7 +1637,8 @@ class AIAssistantPanel extends Widget {
         ai_assistant_generated: true,
         ai_assistant_parent_cell_id: this.getRawCellId(sourceCell.cellId),
         ai_assistant_suggestion_title: suggestion.title,
-        ai_assistant_suggestion_id: suggestion.id
+        ai_assistant_suggestion_id: suggestion.id,
+        ai_assistant_suggestion_key: this.getSuggestionIdentity(suggestion)
       }
     };
 
@@ -1140,10 +1685,7 @@ class AIAssistantPanel extends Widget {
   }
 
   private escapeHtml(text: string): string {
-    // 防御性处理：即使上游（缓存反序列化、接口响应）混入非字符串数据，
-    // 这里也不应该让整个面板崩溃。
-    const safeText = typeof text === 'string' ? text : String(text ?? '');
-    return safeText
+    return text
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;');
