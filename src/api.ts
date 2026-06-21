@@ -4,20 +4,12 @@ import { requestAPI } from './request';
 
 // 1. 定义接口
 
-// 描述cell的基本信息
 export interface ICellDescriptor {
   cellId: string;
   cellIndex: number;
   cellType: string;
   source: string;
-  title?: string;
-  summary?: string; //？表示可选
-}
-
-// 描述后端接口summarize-cell返回的cell summary数据
-export interface ICellSummaryData {
-  title: string;
-  summary: string;
+  summary?: string;
 }
 
 export interface ICellSummaryResponse {
@@ -26,14 +18,13 @@ export interface ICellSummaryResponse {
   cellIndex: number | null;
   cellType: string;
   title?: string;
-  summary?: string;
+  summary: string;
   details: string;
   metadata: {
     source: string;
   };
 }
 
-//一条suggestion的基本信息
 export interface ISuggestion {
   id: string;
   title: string;
@@ -42,18 +33,26 @@ export interface ISuggestion {
   content: string;
   metadata: {
     source: string;
-    [key: string]: unknown;
   };
 }
 
-//请求后端生成建议时，前端传给后端的上下文cell信息&Tree信息
+// export interface IBackendSuggestion {
+//   id?: string;
+//   title?: string;
+//   description?: string;
+//   cellType?: string;
+//   content?: string;
+//   metadata?: {
+//     source?: string;
+//   };
+// }
+
 export interface INextStepContext {
   previousCells: ICellDescriptor[];
   nextCells: ICellDescriptor[];
   tree: ITreeNode[];
 }
 
-//后端生成当前cell的建议后，返回给前端的完整suggestions
 export interface INextStepSuggestionsResponse {
   status: 'success' | 'error';
   suggestions: ISuggestion[];
@@ -63,22 +62,22 @@ export interface INextStepSuggestionsResponse {
   };
 }
 
-// Tree的每个Node
+// interface INextStepSuggestionsBackendResponse {
+//   status: 'success' | 'error';
+//   suggestions: IBackendSuggestion[];
+//   metadata?: {
+//     source?: string;
+//     contextReceived?: boolean;
+//   };
+// }
+
 export interface ITreeNode {
   id: string;
   cellIndex: number;
   cellType: string;
-  title?: string;
   summary?: string;
-  isGenerated?: boolean;
-  parentId: string; // 根节点下的 cell 使用 'ROOT' 作为 parentId。
-  children?: ITreeNode[];
+  parentId?: string;
 }
-
-/**
- TODO: 完善后端endpoint for select-suggestion
- * 返回的ISuggestion中content字段应该是generated
- */
 
 export interface ISelectSuggestionResponse {
   status: 'success' | 'error';
@@ -88,9 +87,43 @@ export interface ISelectSuggestionResponse {
     source: string;
   };
 }
-//2. 定义api functions
 
-//向后端summarize-cell请求当前cell的summary
+export interface ISelectSuggestionContext {
+  previousCells: ICellDescriptor[];
+  nextCells: ICellDescriptor[];
+}
+
+// ── LLM 配置相关接口（对齐后端 llm-config endpoint）──────────────────
+
+export interface ILLMConfig {
+  provider: string;
+  baseUrl: string;
+  model: string;
+  apiKeyConfigured: boolean;
+  timeoutS: number;
+  maxTokens: number;
+  temperature: number;
+}
+
+export interface ILLMConfigResponse {
+  status: 'success' | 'error';
+  config: ILLMConfig;
+  availableProviders: string[];
+  message: string;
+}
+
+export interface ILLMConfigUpdate {
+  provider?: string;
+  baseUrl?: string;
+  model?: string;
+  apiKey?: string;
+  timeoutS?: number;
+  maxTokens?: number;
+  temperature?: number;
+}
+
+// 2. 定义 api functions
+
 export async function summarizeCell(
   serverSettings: ServerConnection.ISettings,
   cell: ICellDescriptor
@@ -111,19 +144,16 @@ export async function summarizeCell(
   return response;
 }
 
-//
 export async function suggestNextSteps(
   serverSettings: ServerConnection.ISettings,
   selectedCell: ICellDescriptor,
   context: INextStepContext
 ): Promise<INextStepSuggestionsResponse> {
-  // 构造 request body
   const requestBody = {
     selectedCell,
     context
   };
 
-  // 构造 request config
   const requestConfig = {
     method: 'POST',
     headers: {
@@ -132,7 +162,6 @@ export async function suggestNextSteps(
     body: JSON.stringify(requestBody)
   };
 
-  // 打印完整请求信息
   console.log('========== HTTP REQUEST ==========');
   console.log('Endpoint:', 'suggest-next-steps');
   console.log('Method:', requestConfig.method);
@@ -157,35 +186,26 @@ export async function suggestNextSteps(
     throw new Error('Server returned an error while suggesting next steps.');
   }
 
+  // return normalizeSuggestionsResponse(response);
   return response;
 }
 
-//告诉后端用户选中了哪一条suggetion
 export async function selectSuggestion(
   serverSettings: ServerConnection.ISettings,
   selectedCell: ICellDescriptor,
   selectedSuggestion: ISuggestion,
-  context: INextStepContext
+  context?: ISelectSuggestionContext
 ): Promise<ISelectSuggestionResponse> {
-  const requestBody = {
-    selectedCell,
-    selectedSuggestion,
-    context
-  };
-
-  console.log('========== HTTP REQUEST ==========');
-  console.log('Endpoint:', 'select-suggestion');
-  console.log('Method:', 'POST');
-  console.log('Body:', JSON.stringify(requestBody, null, 2));
-  console.log('Server Settings:', serverSettings);
-  console.log('==================================');
-
   const response = await requestAPI<ISelectSuggestionResponse>(
     'select-suggestion',
     serverSettings,
     {
       method: 'POST',
-      body: JSON.stringify(requestBody)
+      body: JSON.stringify({
+        selectedCell,
+        selectedSuggestion,
+        context: context ?? { previousCells: [], nextCells: [] }
+      })
     }
   );
 
@@ -195,3 +215,82 @@ export async function selectSuggestion(
 
   return response;
 }
+
+// ── LLM 配置 API ────────────────────────────────────────────────────
+
+/**
+ * GET /ai-assistant-extension/llm-config
+ */
+export async function getLLMConfig(
+  serverSettings: ServerConnection.ISettings
+): Promise<ILLMConfigResponse> {
+  return requestAPI<ILLMConfigResponse>('llm-config', serverSettings, {
+    method: 'GET'
+  });
+}
+
+/**
+ * POST /ai-assistant-extension/llm-config
+ */
+export async function setLLMConfig(
+  serverSettings: ServerConnection.ISettings,
+  config: ILLMConfigUpdate
+): Promise<ILLMConfigResponse> {
+  return requestAPI<ILLMConfigResponse>('llm-config', serverSettings, {
+    method: 'POST',
+    body: JSON.stringify(config)
+  });
+}
+
+// // 把后端返回的可能不完整、格式不规范的数据，转换成前端可以安全使用的标准格式。
+// function normalizeSuggestionsResponse(
+//   response: INextStepSuggestionsBackendResponse
+// ): INextStepSuggestionsResponse {
+//   const metadata = {
+//     source: response.metadata?.source ?? 'llm',
+//     contextReceived: response.metadata?.contextReceived ?? false
+//   };
+//
+//   return {
+//     status: response.status,
+//     suggestions: response.suggestions.map((suggestion, index) =>
+//       normalizeSuggestion(suggestion, index, metadata.source)
+//     ),
+//     metadata
+//   };
+// }
+//
+// function normalizeSuggestion(
+//   suggestion: IBackendSuggestion,
+//   index: number,
+//   metadataSource: string
+// ): ISuggestion {
+//   const fallbackTitle = `Suggestion ${index + 1}`;
+//   const title = normalizeText(
+//     suggestion.title ?? suggestion.description,
+//     fallbackTitle
+//   );
+//   const description = normalizeText(suggestion.description, title);
+//   const cellType = normalizeText(suggestion.cellType, 'code');
+//   const content = normalizeText(suggestion.content, '');
+//
+//   return {
+//     id: normalizeText(suggestion.id, `suggestion-${index + 1}`),
+//     title,
+//     description,
+//     cellType,
+//     content,
+//     metadata: {
+//       source: normalizeText(suggestion.metadata?.source, metadataSource)
+//     }
+//   };
+// }
+//
+// function normalizeText(value: string | undefined, fallback: string): string {
+//   if (typeof value !== 'string') {
+//     return fallback;
+//   }
+//
+//   const trimmed = value.trim();
+//   return trimmed || fallback;
+// }

@@ -110,32 +110,37 @@ You are given:
 - Next notebook context:
   cells that appear after the selected cell.
 
-Use both contexts to understand:
-- the notebook workflow,
-- completed analysis steps,
-- upcoming analysis intentions,
-- and the role of the selected cell.
-
-Suggestions should:
-- Focus on what should reasonably happen next
-  after the CURRENT SELECTED CELL.
-- Be technically meaningful.
-- Follow the notebook workflow.
-- Avoid repeating already completed steps.
-- Avoid suggesting steps already implemented
-  in the next context unless refinement is useful.
-- Prioritize useful analysis, debugging,
-  visualization, or data-processing actions.
+For each suggestion generate:
+- suggestion:
+  A concise description of the next action or notebook step.
+- cellType:
+  The most appropriate notebook cell type.
+  Usually "code" or "markdown".
   
-Do not think step by step. Provide only the final JSON output.
+Rules:
+- Generate 3-5 suggestions.
+- Use "code" for executable analysis steps.
+- Use "markdown" for documentation or explanation steps.
+- The "suggestion" field should briefly describe what to do next.
+- Do not include content generation yet.
+- Do not include explanations outside JSON.
+
+Do not think step by step.
+Provide only the final JSON output.
+
 Return ONLY valid JSON.
 
-Expected JSON format:
+Expected format:
 {
   "suggestions": [
-    "...",
-    "...",
-    "..."
+    {
+      "suggestion": "Visualize the data distribution",
+      "cellType": "code"
+    },
+    {
+      "suggestion": "Summarize the findings",
+      "cellType": "markdown"
+    }
   ]
 }
 """
