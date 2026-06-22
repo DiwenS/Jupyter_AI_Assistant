@@ -179,9 +179,9 @@ class SuggestNextStepsHandler(APIHandler):
         for index, suggestion in enumerate(raw_suggestions):
             suggestions.append({
                 "id": f"suggestion-{index + 1}",
-                "title": str(suggestion),
-                "description": str(suggestion),
-                "cellType": "code",
+                "title": suggestion.get("suggestion", ""),
+                "description": suggestion.get("cellType", "code"),
+                "cellType": suggestion.get("cellType", "code"),
                 "content": "# TODO: generate cell content here",
                 "metadata": {
                     "source": "llm"
