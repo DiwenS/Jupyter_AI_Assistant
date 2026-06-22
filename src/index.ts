@@ -231,7 +231,9 @@ class AIAssistantPanel extends Widget {
       this.suggestions.clear();
       const current = this.notebookTracker.currentWidget;
       if (current?.content.model) {
-        (current.content.model.sharedModel as any).deleteMetadata('ai_assistant_cache');
+        (current.content.model.sharedModel as any).deleteMetadata(
+          'ai_assistant_cache'
+        );
       }
       this.statusMessage = 'Cache cleared.';
       this.updateNotebookInfo();
@@ -613,12 +615,17 @@ class AIAssistantPanel extends Widget {
     this.pruneMissingGeneratedCells();
 
     // 更新缓存状态
-    const cacheStatus = this.node.querySelector('#cache-status') as HTMLElement | null;
+    const cacheStatus = this.node.querySelector(
+      '#cache-status'
+    ) as HTMLElement | null;
     if (cacheStatus) {
       try {
-        const cacheMeta = (current.content.model as any).sharedModel.getMetadata('ai_assistant_cache');
+        const cacheMeta = (
+          current.content.model as any
+        ).sharedModel.getMetadata('ai_assistant_cache');
         if (cacheMeta && cacheMeta.savedAt) {
-          cacheStatus.textContent = '\u2713 Cache: ' + new Date(cacheMeta.savedAt).toLocaleString();
+          cacheStatus.textContent =
+            '\u2713 Cache: ' + new Date(cacheMeta.savedAt).toLocaleString();
         } else {
           cacheStatus.textContent = 'No cache yet.';
         }
@@ -687,15 +694,15 @@ class AIAssistantPanel extends Widget {
       const fixedSummaryMarkup =
         this.summaryDisplayMode === 'fixed'
           ? `<div class="jp-ai-assistant-tree-node-summary-fixed">${this.escapeHtml(
-            summary
-          )}</div>`
+              summary
+            )}</div>`
           : '';
       // Hover 模式：summary 作为 tooltip，鼠标悬浮或键盘 focus 时显示。
       const hoverSummaryMarkup =
         this.summaryDisplayMode === 'hover'
           ? `<div class="jp-ai-assistant-tree-node-tooltip">${this.escapeHtml(
-            summary
-          )}</div>`
+              summary
+            )}</div>`
           : '';
 
       return `
@@ -811,10 +818,7 @@ class AIAssistantPanel extends Widget {
       const childCellId = `${panel.context.path}:${childCell.id}`;
       const parentId = this.getContextTreeParentId(childCellId);
 
-      if (
-        parentId !== sourceCellId ||
-        visitedCellIds.has(childCellId)
-      ) {
+      if (parentId !== sourceCellId || visitedCellIds.has(childCellId)) {
         continue;
       }
 
@@ -841,12 +845,12 @@ class AIAssistantPanel extends Widget {
       childNodes.push(`
         <div class="jp-ai-assistant-tree-family">
           ${renderTreeNode(
-        childCellId,
-        generatedCellIndex,
-        generatedCell.type,
-        summary,
-        this.isGeneratedCellId(childCellId)
-      )}
+            childCellId,
+            generatedCellIndex,
+            generatedCell.type,
+            summary,
+            this.isGeneratedCellId(childCellId)
+          )}
           ${nestedChildNodes}
         </div>
       `);
@@ -897,7 +901,9 @@ class AIAssistantPanel extends Widget {
   }
 
   // 根据 generated cell id 找到对应 suggestion，用于显示生成节点标题。
-  private findGeneratedSuggestionByCellId(cellId: string): ISuggestion | undefined {
+  private findGeneratedSuggestionByCellId(
+    cellId: string
+  ): ISuggestion | undefined {
     for (const [suggestionKey, generatedCellId] of this.generatedCellIds) {
       if (generatedCellId === cellId) {
         return this.generatedSuggestions.get(suggestionKey);
@@ -971,7 +977,10 @@ class AIAssistantPanel extends Widget {
   }
 
   // 写入手动 tree parent，避免把节点拖成自己的子孙节点。
-  private reparentTreeNode(childCellId: string, parentCellId: string | null): void {
+  private reparentTreeNode(
+    childCellId: string,
+    parentCellId: string | null
+  ): void {
     const current = this.notebookTracker.currentWidget;
     const model = current?.content.model;
 
@@ -1284,9 +1293,7 @@ class AIAssistantPanel extends Widget {
           typeof summaryObject.title === 'string' ? summaryObject.title : ''
         ),
         summary:
-          typeof summaryObject.summary === 'string'
-            ? summaryObject.summary
-            : ''
+          typeof summaryObject.summary === 'string' ? summaryObject.summary : ''
       };
     }
 
@@ -1355,8 +1362,14 @@ class AIAssistantPanel extends Widget {
     }
 
     const notebookPath = current.context.path;
-    console.log('[AI Assistant] loadCache: found cache, notebookPath =', notebookPath);
-    console.log('[AI Assistant] loadCache: summaries keys =', Object.keys(meta.summaries || {}));
+    console.log(
+      '[AI Assistant] loadCache: found cache, notebookPath =',
+      notebookPath
+    );
+    console.log(
+      '[AI Assistant] loadCache: summaries keys =',
+      Object.keys(meta.summaries || {})
+    );
 
     if (meta.summaries) {
       for (const [rawCellId, summary] of Object.entries(meta.summaries)) {
@@ -1369,11 +1382,17 @@ class AIAssistantPanel extends Widget {
 
     if (meta.suggestions) {
       for (const [rawCellId, sugs] of Object.entries(meta.suggestions)) {
-        this.suggestions.set(`${notebookPath}:${rawCellId}`, sugs as ISuggestion[]);
+        this.suggestions.set(
+          `${notebookPath}:${rawCellId}`,
+          sugs as ISuggestion[]
+        );
       }
     }
 
-    console.log('[AI Assistant] Cache loaded! summaries count =', this.summaries.size);
+    console.log(
+      '[AI Assistant] Cache loaded! summaries count =',
+      this.summaries.size
+    );
   }
 
   // ── 把缓存写入 notebook metadata ──────────────────────────────────────
@@ -1405,11 +1424,13 @@ class AIAssistantPanel extends Widget {
     try {
       (model.sharedModel as any).setMetadata(
         'ai_assistant_cache',
-        JSON.parse(JSON.stringify({
-          summaries: summariesPlain,
-          suggestions: suggestionsPlain,
-          savedAt: new Date().toISOString()
-        }))
+        JSON.parse(
+          JSON.stringify({
+            summaries: summariesPlain,
+            suggestions: suggestionsPlain,
+            savedAt: new Date().toISOString()
+          })
+        )
       );
       console.log('[AI Assistant] Cache saved to notebook metadata.');
     } catch (e) {
