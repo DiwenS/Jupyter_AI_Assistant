@@ -109,7 +109,15 @@ class SummarizeCellHandler(APIHandler):
         if not cell_source:
             cell_source = data.get("cell_source", "")
 
-        summary = summarize_cell(cell_source)
+        try:
+            summary = summarize_cell(cell_source)
+        except Exception as e:
+            self.set_status(500)
+            self.finish(json.dumps({
+                "status": "error",
+                "message": f"Failed to summarize cell: {str(e)}"
+            }))
+            return
 
         self.finish(json.dumps({
             "status": "success",
@@ -119,7 +127,7 @@ class SummarizeCellHandler(APIHandler):
             "summary": summary,
             "details": "",
             "metadata": {
-                "source": "rule-based"
+                "source": "llm"
             }
         }))
 
@@ -176,7 +184,7 @@ class SuggestNextStepsHandler(APIHandler):
                 "cellType": "code",
                 "content": "# TODO: generate cell content here",
                 "metadata": {
-                    "source": "rule-based"
+                    "source": "llm"
                 }
             })
 
@@ -184,7 +192,7 @@ class SuggestNextStepsHandler(APIHandler):
             "status": "success",
             "suggestions": suggestions,
             "metadata": {
-                "source": "rule-based",
+                "source": "llm",
                 "contextReceived": bool(context)
             }
         }))
@@ -234,8 +242,8 @@ class SelectSuggestionHandler(APIHandler):
             }))
             return
 
-        previous_cells = data.get("context", []).get("previousCells", [])
-        next_cells = data.get("context", []).get("nextCells", [])
+        previous_cells = (data.get("context") or {}).get("previousCells", [])
+        next_cells = (data.get("context") or {}).get("nextCells", [])
 
         # print("⬇️ Selected cell previous context1 ⬇️")
         # print(previous_cells)

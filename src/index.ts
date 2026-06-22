@@ -1,3 +1,4 @@
+// AI_ASSISTANT_BUILD_MARKER: provider-autofill-v1
 import {
   JupyterFrontEnd,
   JupyterFrontEndPlugin
@@ -12,12 +13,16 @@ import {
   ICellDescriptor,
   ICellSummaryData,
   ICellSummaryResponse,
+  ILLMConfig,
   INextStepContext,
   ISuggestion,
   ITreeNode,
+  LLMProvider,
   summarizeCell,
   suggestNextSteps,
-  selectSuggestion
+  selectSuggestion,
+  getLLMConfig,
+  updateLLMConfig
 } from './api';
 
 // Tree 中 node summary 的两种显示方式：固定显示或 hover 悬浮显示。
@@ -53,6 +58,16 @@ class AIAssistantPanel extends Widget {
   // 保存 tree 的缩放比例，1 表示 100%。
   private treeZoom = 1;
 
+  // 当前 LLM 配置（从后端拉取，不含真实 apiKey）。初次渲染前为 null。
+  private llmConfig: ILLMConfig | null = null;
+  private llmAvailableProviders: LLMProvider[] = [
+    'ollama',
+    'openai-compatible',
+    'anthropic'
+  ];
+  private llmStatusMessage = '';
+  private llmSaving = false;
+
   constructor(
     notebookTracker: INotebookTracker,
     serverSettings: ServerConnection.ISettings
@@ -69,6 +84,9 @@ class AIAssistantPanel extends Widget {
     this.title.iconClass = 'jp-SideBar-tabIcon jp-SettingsIcon';
 
     this.render();
+
+    // 进入面板后立即拉取一次当前 LLM 配置。
+    void this.loadLLMConfig();
 
     // 监听当前选择的 cell，保持侧边栏中的 active node 高亮同步，并滚动到对应 Tree node。
     this.notebookTracker.activeCellChanged.connect(() => {
@@ -101,6 +119,14 @@ class AIAssistantPanel extends Widget {
     this.node.innerHTML = `
       <div class="jp-ai-assistant-root">
         <h2>AI Notebook Assistant</h2>
+
+        <div class="jp-ai-assistant-section-header">
+          <h3>Model Settings</h3>
+        </div>
+        <div id="llm-settings" class="jp-ai-assistant-llm-settings">
+          ${this.renderLLMSettingsBody()}
+        </div>
+        <hr />
 
         <button id="refresh-notebook-info">
           Refresh notebook info
@@ -246,6 +272,308 @@ class AIAssistantPanel extends Widget {
     };
 
     this.updateTreeZoomControls();
+    this.bindLLMSettingsEvents();
+  }
+
+  // 根据 provider 渲染不同的字段（baseUrl 是否需要、apiKey 提示等）。
+  private renderLLMSettingsBody(): string {
+    if (!this.llmConfig) {
+      return '<div class="jp-ai-assistant-llm-loading">Loading model settings...</div>';
+    }
+
+    const config = this.llmConfig;
+    const provider = config.provider;
+
+    const providerOptions = this.llmAvailableProviders
+      .map(option => {
+        const label = this.providerLabel(option);
+        const selected = option === provider ? 'selected' : '';
+        return `<option value="${option}" ${selected}>${label}</option>`;
+      })
+      .join('');
+
+    // ollama 走本地服务，一般不需要 apiKey；openai-compatible / anthropic 需要。
+    const needsApiKey = provider !== 'ollama';
+    const apiKeyPlaceholder = config.apiKeyConfigured
+      ? '已配置（留空则不修改）'
+      : '未配置';
+
+    const baseUrlPlaceholder = this.providerDefaultBaseUrl(provider);
+    const modelPlaceholder = this.providerDefaultModelHint(provider);
+
+    return `
+      <label class="jp-ai-assistant-llm-field">
+        <span>Provider</span>
+        <select id="llm-provider">${providerOptions}</select>
+      </label>
+
+      <label class="jp-ai-assistant-llm-field">
+        <span>Model</span>
+        <input
+          id="llm-model"
+          type="text"
+          value="${this.escapeHtml(config.model)}"
+          placeholder="${this.escapeHtml(modelPlaceholder)}"
+        />
+      </label>
+
+      <label class="jp-ai-assistant-llm-field">
+        <span>Base URL</span>
+        <input
+          id="llm-base-url"
+          type="text"
+          value="${this.escapeHtml(config.baseUrl)}"
+          placeholder="${this.escapeHtml(baseUrlPlaceholder)}"
+        />
+      </label>
+
+      ${
+        needsApiKey
+          ? `
+      <label class="jp-ai-assistant-llm-field">
+        <span>API Key</span>
+        <input
+          id="llm-api-key"
+          type="password"
+          value=""
+          placeholder="${this.escapeHtml(apiKeyPlaceholder)}"
+          autocomplete="off"
+        />
+      </label>`
+          : ''
+      }
+
+      <div class="jp-ai-assistant-llm-row">
+        <label class="jp-ai-assistant-llm-field jp-ai-assistant-llm-field-inline">
+          <span>Max tokens</span>
+          <input id="llm-max-tokens" type="number" min="1" value="${config.maxTokens}" />
+        </label>
+        <label class="jp-ai-assistant-llm-field jp-ai-assistant-llm-field-inline">
+          <span>Temperature</span>
+          <input id="llm-temperature" type="number" min="0" max="2" step="0.1" value="${config.temperature}" />
+        </label>
+      </div>
+
+      <div class="jp-ai-assistant-llm-actions">
+        <button id="llm-save" class="jp-ai-assistant-llm-save-button" type="button" ${this.llmSaving ? 'disabled' : ''}>
+          ${this.llmSaving ? 'Saving...' : 'Save'}
+        </button>
+        <span id="llm-status" class="jp-ai-assistant-llm-status">
+          ${this.escapeHtml(this.llmStatusMessage)}
+        </span>
+      </div>
+    `;
+  }
+
+  private providerLabel(provider: LLMProvider): string {
+    switch (provider) {
+      case 'ollama':
+        return 'Ollama (local)';
+      case 'openai-compatible':
+        return 'OpenAI';
+      case 'anthropic':
+        return 'Claude (Anthropic)';
+      default:
+        return provider;
+    }
+  }
+
+  private providerDefaultBaseUrl(provider: LLMProvider): string {
+    switch (provider) {
+      case 'ollama':
+        return 'http://localhost:11434';
+      case 'openai-compatible':
+        return 'https://api.openai.com/v1';
+      case 'anthropic':
+        return 'https://api.anthropic.com';
+      default:
+        return '';
+    }
+  }
+
+  private providerDefaultModelHint(provider: LLMProvider): string {
+    switch (provider) {
+      case 'ollama':
+        return 'e.g. qwen3:8b';
+      case 'openai-compatible':
+        return 'e.g. gpt-4o-mini';
+      case 'anthropic':
+        return 'e.g. claude-sonnet-4-6';
+      default:
+        return '';
+    }
+  }
+
+  // 与 providerDefaultModelHint 对应的纯模型名（不带 "e.g." 前缀），
+  // 用于切换 provider 时自动填入 Model 输入框。
+  private providerDefaultModel(provider: LLMProvider): string {
+    switch (provider) {
+      case 'ollama':
+        return 'qwen3:8b';
+      case 'openai-compatible':
+        return 'gpt-4o-mini';
+      case 'anthropic':
+        return 'claude-sonnet-4-6';
+      default:
+        return '';
+    }
+  }
+
+  // 只重新渲染设置区块本身，避免重建整个面板（不会打断用户在别处的操作/滚动位置）。
+  private rerenderLLMSettings(): void {
+    const container = this.node.querySelector(
+      '#llm-settings'
+    ) as HTMLElement | null;
+
+    if (!container) {
+      return;
+    }
+
+    container.innerHTML = this.renderLLMSettingsBody();
+    this.bindLLMSettingsEvents();
+  }
+
+  private bindLLMSettingsEvents(): void {
+    const providerSelect = this.node.querySelector(
+      '#llm-provider'
+    ) as HTMLSelectElement | null;
+
+    if (providerSelect) {
+      providerSelect.onchange = () => {
+        if (!this.llmConfig) {
+          return;
+        }
+
+        const previousProvider = this.llmConfig.provider;
+        const nextProvider = providerSelect.value as LLMProvider;
+
+        const modelInput = this.node.querySelector(
+          '#llm-model'
+        ) as HTMLInputElement | null;
+        const baseUrlInput = this.node.querySelector(
+          '#llm-base-url'
+        ) as HTMLInputElement | null;
+
+        // 只在输入框为空、或者当前值仍等于"切换前 provider 的默认值"时才自动替换，
+        // 避免覆盖用户已经手动填写的自定义 model / baseUrl。
+        const currentModel = modelInput?.value ?? '';
+        const currentBaseUrl = baseUrlInput?.value ?? '';
+
+        const modelIsDefault =
+          currentModel === '' ||
+          currentModel === this.providerDefaultModel(previousProvider);
+        const baseUrlIsDefault =
+          currentBaseUrl === '' ||
+          currentBaseUrl === this.providerDefaultBaseUrl(previousProvider);
+
+        const nextModel = modelIsDefault
+          ? this.providerDefaultModel(nextProvider)
+          : currentModel;
+        const nextBaseUrl = baseUrlIsDefault
+          ? this.providerDefaultBaseUrl(nextProvider)
+          : currentBaseUrl;
+
+        // 实际保存仍由用户点击 Save 触发，这里只更新本地展示状态。
+        this.llmConfig = {
+          ...this.llmConfig,
+          provider: nextProvider,
+          model: nextModel,
+          baseUrl: nextBaseUrl
+        };
+        this.rerenderLLMSettings();
+      };
+    }
+
+    const saveButton = this.node.querySelector(
+      '#llm-save'
+    ) as HTMLButtonElement | null;
+
+    if (saveButton) {
+      saveButton.onclick = () => {
+        void this.saveLLMConfig();
+      };
+    }
+  }
+
+  // 从后端拉取当前 LLM 配置并渲染。
+  private async loadLLMConfig(): Promise<void> {
+    try {
+      const response = await getLLMConfig(this.serverSettings);
+      this.llmConfig = response.config;
+      this.llmAvailableProviders = response.availableProviders;
+      this.llmStatusMessage = '';
+    } catch (error) {
+      console.error('Failed to load LLM config:', error);
+      this.llmStatusMessage = 'Failed to load model settings.';
+    }
+
+    this.rerenderLLMSettings();
+  }
+
+  // 保存设置区块中的表单内容到后端。apiKey 输入框留空表示不修改已保存的 key。
+  private async saveLLMConfig(): Promise<void> {
+    if (!this.llmConfig) {
+      return;
+    }
+
+    const providerSelect = this.node.querySelector(
+      '#llm-provider'
+    ) as HTMLSelectElement | null;
+    const modelInput = this.node.querySelector(
+      '#llm-model'
+    ) as HTMLInputElement | null;
+    const baseUrlInput = this.node.querySelector(
+      '#llm-base-url'
+    ) as HTMLInputElement | null;
+    const apiKeyInput = this.node.querySelector(
+      '#llm-api-key'
+    ) as HTMLInputElement | null;
+    const maxTokensInput = this.node.querySelector(
+      '#llm-max-tokens'
+    ) as HTMLInputElement | null;
+    const temperatureInput = this.node.querySelector(
+      '#llm-temperature'
+    ) as HTMLInputElement | null;
+
+    const update: Record<string, unknown> = {
+      provider: providerSelect?.value ?? this.llmConfig.provider,
+      model: modelInput?.value ?? '',
+      baseUrl: baseUrlInput?.value ?? ''
+    };
+
+    // 留空 apiKey 表示不修改已保存的 key，因此不发送该字段。
+    if (apiKeyInput && apiKeyInput.value.trim() !== '') {
+      update.apikey = apiKeyInput.value.trim();
+    }
+
+    if (maxTokensInput && maxTokensInput.value.trim() !== '') {
+      update.maxTokens = Number(maxTokensInput.value);
+    }
+
+    if (temperatureInput && temperatureInput.value.trim() !== '') {
+      update.temperature = Number(temperatureInput.value);
+    }
+
+    this.llmSaving = true;
+    this.llmStatusMessage = '';
+    this.rerenderLLMSettings();
+
+    try {
+      const response = await updateLLMConfig(this.serverSettings, update);
+      this.llmConfig = response.config;
+      this.llmAvailableProviders = response.availableProviders;
+      this.llmStatusMessage = 'Saved.';
+    } catch (error) {
+      console.error('Failed to update LLM config:', error);
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Failed to save model settings.';
+      this.llmStatusMessage = message;
+    } finally {
+      this.llmSaving = false;
+      this.rerenderLLMSettings();
+    }
   }
 
   // 读取 notebook，刷新基本信息、cell summary 列表和可视化 tree。

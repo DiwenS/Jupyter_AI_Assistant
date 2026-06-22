@@ -125,13 +125,18 @@ def update_llm_config(config):
         "provider",
         "baseUrl",
         "model",
-        "apikey",
+        "apiKey",
         "timeoutS",
         "maxTokens",
         "temperature",
     }
 
-    for key, value in config.items():
+    # 兼容前端历史上可能发送的小写 "apikey" 字段名，统一映射到内部使用的 "apiKey"。
+    normalized_config = dict(config)
+    if "apikey" in normalized_config and "apiKey" not in normalized_config:
+        normalized_config["apiKey"] = normalized_config.pop("apikey")
+
+    for key, value in normalized_config.items():
         if key not in allowed_keys:
             continue
 

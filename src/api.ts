@@ -88,6 +88,39 @@ export interface ISelectSuggestionResponse {
     source: string;
   };
 }
+
+// 支持的 LLM provider，与后端 SUPPORTED_PROVIDERS 保持一致。
+export type LLMProvider = 'ollama' | 'openai-compatible' | 'anthropic';
+
+// 后端 GET/POST llm-config 返回的 config 部分（不包含真实 apiKey）。
+export interface ILLMConfig {
+  provider: LLMProvider;
+  baseUrl: string;
+  model: string;
+  apiKeyConfigured: boolean;
+  timeoutS: number;
+  maxTokens: number;
+  temperature: number;
+}
+
+export interface ILLMConfigResponse {
+  status: 'success' | 'error';
+  config: ILLMConfig;
+  availableProviders: LLMProvider[];
+  message: string;
+}
+
+// 前端发起更新请求时使用的字段。apiKey 留空表示不修改已保存的 key。
+export interface ILLMConfigUpdate {
+  provider?: LLMProvider;
+  baseUrl?: string;
+  model?: string;
+  apikey?: string;
+  timeoutS?: number;
+  maxTokens?: number;
+  temperature?: number;
+}
+
 //2. 定义api functions
 
 //向后端summarize-cell请求当前cell的summary
@@ -191,6 +224,47 @@ export async function selectSuggestion(
 
   if (response.status === 'error') {
     throw new Error('Server returned an error while selecting suggestion.');
+  }
+
+  return response;
+}
+
+// 获取当前后端的 LLM 配置（provider / model / baseUrl 等，不含真实 apiKey）。
+export async function getLLMConfig(
+  serverSettings: ServerConnection.ISettings
+): Promise<ILLMConfigResponse> {
+  const response = await requestAPI<ILLMConfigResponse>(
+    'llm-config',
+    serverSettings,
+    {
+      method: 'GET'
+    }
+  );
+
+  if (response.status === 'error') {
+    throw new Error('Server returned an error while fetching LLM config.');
+  }
+
+  return response;
+}
+
+// 更新后端的 LLM 配置。update 中未提供或为空字符串的字段，后端会保持原值不变
+// （apikey 留空即表示不修改已保存的 key）。
+export async function updateLLMConfig(
+  serverSettings: ServerConnection.ISettings,
+  update: ILLMConfigUpdate
+): Promise<ILLMConfigResponse> {
+  const response = await requestAPI<ILLMConfigResponse>(
+    'llm-config',
+    serverSettings,
+    {
+      method: 'POST',
+      body: JSON.stringify(update)
+    }
+  );
+
+  if (response.status === 'error') {
+    throw new Error('Server returned an error while updating LLM config.');
   }
 
   return response;

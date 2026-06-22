@@ -446,3 +446,90 @@ Fixed 固定显示，Hover 悬浮显示。 */
   font-size: var(--jp-ui-font-size1);
   padding: 5px 8px;
 }
+
+/* ===========================
+   Model Settings (LLM provider selection)
+   =========================== */
+
+.jp-ai-assistant-llm-settings {
+  background: var(--jp-layout-color2);
+  border: 1px solid var(--jp-border-color2);
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 8px;
+}
+
+.jp-ai-assistant-llm-loading {
+  color: var(--jp-ui-font-color2);
+  font-size: var(--jp-ui-font-size1);
+}
+
+.jp-ai-assistant-llm-field {
+  display: flex;
+  flex-direction: column;
+  font-size: var(--jp-ui-font-size1);
+  gap: 3px;
+}
+
+.jp-ai-assistant-llm-field span {
+  color: var(--jp-ui-font-color2);
+}
+
+.jp-ai-assistant-llm-field select,
+.jp-ai-assistant-llm-field input {
+  background: var(--jp-layout-color1);
+  border: 1px solid var(--jp-border-color1);
+  border-radius: 3px;
+  box-sizing: border-box;
+  color: var(--jp-ui-font-color1);
+  font-family: var(--jp-ui-font-family);
+  font-size: var(--jp-ui-font-size1);
+  padding: 4px 6px;
+  width: 100%;
+}
+
+.jp-ai-assistant-llm-field select:focus,
+.jp-ai-assistant-llm-field input:focus {
+  border-color: var(--jp-brand-color1);
+  outline: none;
+}
+
+.jp-ai-assistant-llm-row {
+  display: flex;
+  gap: 8px;
+}
+
+.jp-ai-assistant-llm-field-inline {
+  flex: 1;
+  min-width: 0;
+}
+
+.jp-ai-assistant-llm-actions {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.jp-ai-assistant-llm-actions .jp-ai-assistant-llm-save-button {
+  background: var(--jp-brand-color1);
+  border: 1px solid var(--jp-brand-color1);
+  border-radius: 4px;
+  color: var(--jp-ui-inverse-font-color1);
+  cursor: pointer;
+  font-family: var(--jp-ui-font-family);
+  font-size: var(--jp-ui-font-size1);
+  padding: 5px 10px;
+}
+
+.jp-ai-assistant-llm-actions .jp-ai-assistant-llm-save-button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.jp-ai-assistant-llm-status {
+  color: var(--jp-ui-font-color2);
+  font-size: var(--jp-ui-font-size0);
+}
