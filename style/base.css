@@ -108,7 +108,7 @@ Fixed 固定显示，Hover 悬浮显示。 */
 
 /* Tree canvas 是实际被缩放的区域，transform-origin 保证从左上角缩放。 */
 .jp-ai-assistant-tree-canvas {
-  min-width: 220px;
+  min-width: 560px;
   transform-origin: top left;
 }
 
@@ -169,6 +169,25 @@ Fixed 固定显示，Hover 悬浮显示。 */
 .jp-ai-assistant-tree-family {
   display: grid;
   gap: 10px;
+  position: relative;
+}
+
+.jp-ai-assistant-tree-family:hover,
+.jp-ai-assistant-tree-family:focus-within {
+  z-index: 20;
+}
+
+.jp-ai-assistant-tree-family:has(
+    > .jp-ai-assistant-tree-generated-children
+  )::after {
+  background: var(--jp-border-color2);
+  bottom: 18px;
+  content: '';
+  left: 66px;
+  position: absolute;
+  top: 27px;
+  width: 2px;
+  z-index: 0;
 }
 
 .jp-ai-assistant-tree-generated-children {
@@ -194,8 +213,14 @@ Fixed 固定显示，Hover 悬浮显示。 */
   align-items: start;
   display: grid;
   gap: 10px;
-  grid-template-columns: max-content minmax(0, 1fr);
+  grid-template-columns: max-content 220px;
   position: relative;
+  z-index: 1;
+}
+
+.jp-ai-assistant-tree-node:hover,
+.jp-ai-assistant-tree-node:focus-within {
+  z-index: 30;
 }
 
 /* 从主干线连接到每个 node 的横向分支线。 */
@@ -319,18 +344,14 @@ Fixed 固定显示，Hover 悬浮显示。 */
   border-style: dashed;
 }
 
-.jp-ai-assistant-tree-node-ai-badge {
-  background: var(--jp-brand-color1);
-  border-radius: 999px;
-  color: var(--jp-ui-inverse-font-color1);
+.jp-ai-assistant-tree-node-compact-ai {
+  color: var(--jp-brand-color1);
+  display: block;
   font-size: 9px;
   font-weight: 700;
   letter-spacing: 0;
   line-height: 1;
-  padding: 3px 5px;
-  position: absolute;
-  right: -7px;
-  top: -7px;
+  margin-top: 2px;
 }
 
 /* Fixed 模式下的 summary：固定显示在 node 右侧。 */
@@ -338,9 +359,11 @@ Fixed 固定显示，Hover 悬浮显示。 */
   color: var(--jp-ui-font-color2);
   font-size: var(--jp-ui-font-size1);
   line-height: 1.4;
-  max-width: 190px;
-  overflow-wrap: anywhere;
+  overflow-wrap: normal;
   padding-top: 5px;
+  white-space: normal;
+  width: 220px;
+  word-break: normal;
 }
 
 /* Hover 模式下的 summary tooltip：固定宽度，避免文字被挤成竖排。 */
@@ -360,7 +383,7 @@ Fixed 固定显示，Hover 悬浮显示。 */
   top: 4px;
   white-space: normal;
   width: 220px;
-  z-index: 10;
+  z-index: 100;
 }
 
 .jp-ai-assistant-tree-node-button:hover .jp-ai-assistant-tree-node-tooltip,

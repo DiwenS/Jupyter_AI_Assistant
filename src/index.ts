@@ -685,13 +685,14 @@ class AIAssistantPanel extends Widget {
         : '';
       const cellTypeLabel =
         normalizedCellType === 'markdown' ? 'markdown' : 'code';
+      const aiMetaLabel = isGenerated ? ' · AI' : '';
       const nodeMetaMarkup = trimmedTitle
         ? `<span class="jp-ai-assistant-tree-node-meta">#${cellIndex} · ${this.escapeHtml(
           cellTypeLabel
-        )}</span>`
+        )}${aiMetaLabel}</span>`
         : '';
-      const aiBadgeMarkup = isGenerated
-        ? '<span class="jp-ai-assistant-tree-node-ai-badge">AI</span>'
+      const compactAiMarkup = isGenerated && !trimmedTitle
+        ? '<span class="jp-ai-assistant-tree-node-compact-ai">AI</span>'
         : '';
       const activeClass =
         cellIndex === activeCellIndex
@@ -731,11 +732,11 @@ class AIAssistantPanel extends Widget {
             draggable="true"
             title="Jump to cell ${cellIndex}"
           >
-            ${aiBadgeMarkup}
             <span class="jp-ai-assistant-tree-node-label">${this.escapeHtml(
               nodeLabel
             )}</span>
             ${nodeMetaMarkup}
+            ${compactAiMarkup}
             ${hoverSummaryMarkup}
           </button>
           ${fixedSummaryMarkup}
