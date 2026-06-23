@@ -48,6 +48,7 @@ class AIAssistantPanel extends Widget {
   private suggestions = new Map<string, ISuggestion[]>();
   private pendingSuggestionCellID = '';
   private statusMessage = '';
+  private statusProgress: number | null = null;
   // selected/generated suggestion state uses sourceCellId + suggestionId as key.
   private generatedSuggestions = new Map<string, ISuggestion>(); // 储存后端返回的带真实 content 的 suggestion
   private generatedCellIds = new Map<string, string>(); // source cellId + suggestionId -> generated child cell id
@@ -67,6 +68,7 @@ class AIAssistantPanel extends Widget {
   ];
   private llmStatusMessage = '';
   private llmSaving = false;
+  private modelSettingsCollapsed = false;
 
   constructor(
     notebookTracker: INotebookTracker,
@@ -120,8 +122,20 @@ class AIAssistantPanel extends Widget {
       <div class="jp-ai-assistant-root">
         <h2>AI Notebook Assistant</h2>
 
-        <div class="jp-ai-assistant-section-header">
-          <h3>Model Settings</h3>
+        <div class="jp-ai-assistant-section-header jp-ai-assistant-model-settings-header">
+          <h3>
+            Model Settings
+            <button
+              id="toggle-model-settings"
+              class="jp-ai-assistant-collapse-button"
+              type="button"
+              aria-expanded="${this.modelSettingsCollapsed ? 'false' : 'true'}"
+              aria-label="${this.modelSettingsCollapsed ? 'Expand model settings' : 'Collapse model settings'}"
+              title="${this.modelSettingsCollapsed ? 'Expand model settings' : 'Collapse model settings'}"
+            >
+              <span class="jp-ai-assistant-collapse-chevron"></span>
+            </button>
+          </h3>
         </div>
         <div id="llm-settings" class="jp-ai-assistant-llm-settings">
           ${this.renderLLMSettingsBody()}
@@ -141,6 +155,17 @@ class AIAssistantPanel extends Widget {
         </button>
 
         <div id="cache-status" style="font-size:12px;margin:4px 0;color:#2196f3;"></div>        <hr />
+
+        <div
+          id="ai-assistant-status"
+          class="jp-ai-assistant-status"
+          hidden
+        >
+          <div class="jp-ai-assistant-status-text"></div>
+          <div class="jp-ai-assistant-status-progress">
+            <div class="jp-ai-assistant-status-progress-bar"></div>
+          </div>
+        </div>
         
         <h3>Current Notebook</h3>
         <div id="notebook-info">
@@ -188,21 +213,6 @@ class AIAssistantPanel extends Widget {
 
 
 
-        <h3>Notebook Cells</h3>
-        <div id="cell-list">
-          Open a notebook and click refresh.
-        </div>
-
-        <div id="ai-assistant-status" class="jp-ai-assistant-status">
-          ${this.escapeHtml(this.statusMessage || 'Ready.')}
-        </div>
-
-        <h3>Next-step Suggestions</h3>
-        <ul>
-          <li>Summarize the selected cell</li>
-          <li>Suggest a possible next step</li>
-          <li>Create a child cell from a suggestion</li>
-        </ul>
       </div>
     `;
 
@@ -235,7 +245,7 @@ class AIAssistantPanel extends Widget {
           'ai_assistant_cache'
         );
       }
-      this.statusMessage = 'Cache cleared.';
+      this.setAssistantStatus('Cache cleared.');
       this.updateNotebookInfo();
     };
 
@@ -274,11 +284,16 @@ class AIAssistantPanel extends Widget {
     };
 
     this.updateTreeZoomControls();
+    this.bindModelSettingsToggle();
     this.bindLLMSettingsEvents();
   }
 
   // 根据 provider 渲染不同的字段（baseUrl 是否需要、apiKey 提示等）。
   private renderLLMSettingsBody(): string {
+    if (this.modelSettingsCollapsed) {
+      return '';
+    }
+
     if (!this.llmConfig) {
       return '<div class="jp-ai-assistant-llm-loading">Loading model settings...</div>';
     }
@@ -434,7 +449,58 @@ class AIAssistantPanel extends Widget {
     this.bindLLMSettingsEvents();
   }
 
+  private bindModelSettingsToggle(): void {
+    const toggleButton = this.node.querySelector(
+      '#toggle-model-settings'
+    ) as HTMLButtonElement | null;
+    const settingsContainer = this.node.querySelector(
+      '#llm-settings'
+    ) as HTMLElement | null;
+
+    if (!toggleButton || !settingsContainer) {
+      return;
+    }
+
+    settingsContainer.hidden = this.modelSettingsCollapsed;
+    toggleButton.title = this.modelSettingsCollapsed
+      ? 'Expand model settings'
+      : 'Collapse model settings';
+    toggleButton.setAttribute(
+      'aria-label',
+      this.modelSettingsCollapsed
+        ? 'Expand model settings'
+        : 'Collapse model settings'
+    );
+    toggleButton.setAttribute(
+      'aria-expanded',
+      this.modelSettingsCollapsed ? 'false' : 'true'
+    );
+
+    toggleButton.onclick = () => {
+      this.modelSettingsCollapsed = !this.modelSettingsCollapsed;
+      settingsContainer.hidden = this.modelSettingsCollapsed;
+      toggleButton.title = this.modelSettingsCollapsed
+        ? 'Expand model settings'
+        : 'Collapse model settings';
+      toggleButton.setAttribute(
+        'aria-label',
+        this.modelSettingsCollapsed
+          ? 'Expand model settings'
+          : 'Collapse model settings'
+      );
+      toggleButton.setAttribute(
+        'aria-expanded',
+        this.modelSettingsCollapsed ? 'false' : 'true'
+      );
+      this.rerenderLLMSettings();
+    };
+  }
+
   private bindLLMSettingsEvents(): void {
+    if (this.modelSettingsCollapsed) {
+      return;
+    }
+
     const providerSelect = this.node.querySelector(
       '#llm-provider'
     ) as HTMLSelectElement | null;
@@ -587,15 +653,12 @@ class AIAssistantPanel extends Widget {
       '#notebook-info'
     ) as HTMLElement;
 
-    const cellList = this.node.querySelector('#cell-list') as HTMLElement;
-
     const notebookTree = this.node.querySelector(
       '#notebook-tree'
     ) as HTMLElement;
 
     if (!current) {
       notebookInfo.innerHTML = 'No active notebook found.';
-      cellList.innerHTML = 'Open a notebook first.';
       notebookTree.innerHTML = 'Open a notebook first.';
       return;
     }
@@ -605,7 +668,6 @@ class AIAssistantPanel extends Widget {
 
     if (!model) {
       notebookInfo.innerHTML = 'Notebook model is not ready yet.';
-      cellList.innerHTML = '';
       notebookTree.innerHTML = '';
       return;
     }
@@ -643,28 +705,6 @@ class AIAssistantPanel extends Widget {
       <p><b>Number of cells:</b> ${cellCount}</p>
       <p><b>Selected cell index:</b> ${activeCellIndex}</p>
     `;
-
-    const items: string[] = [];
-
-    for (let i = 0; i < cellCount; i++) {
-      const cell = model.cells.get(i);
-      const cellType = cell.type;
-
-      const cellId = `${current.context.path}:${cell.id}`;
-      const summaryData = this.getSummaryData(cellId);
-      const title = summaryData?.title || 'No title generated yet.';
-      const summary = summaryData?.summary || 'No summary generated yet.';
-
-      items.push(`
-        <li>
-          <b>[${i}] ${cellType}</b><br />
-          <p><b>Title:</b> ${this.escapeHtml(title)}</p>
-          <p><b>Summary:</b> ${this.escapeHtml(summary)}</p>
-        </li>
-      `);
-    }
-
-    cellList.innerHTML = `<ul>${items.join('')}</ul>`;
 
     const treeNodes: string[] = [];
     const generatedCellIdSet = new Set(this.generatedCellIds.values());
@@ -1016,7 +1056,7 @@ class AIAssistantPanel extends Widget {
       parentCellId &&
       this.isTreeDescendant(current, parentCellId, childCellId)
     ) {
-      this.statusMessage = 'Cannot move a node under its own child.';
+      this.setAssistantStatus('Cannot move a node under its own child.');
       this.updateNotebookInfo();
       return;
     }
@@ -1032,9 +1072,11 @@ class AIAssistantPanel extends Widget {
       'ai_assistant_tree_parent_cell_id',
       parentCellId ? this.getRawCellId(parentCellId) : ''
     );
-    this.statusMessage = parentCellId
-      ? `Moved cell ${childIndex} under another tree node.`
-      : `Moved cell ${childIndex} under Root.`;
+    this.setAssistantStatus(
+      parentCellId
+        ? `Moved cell ${childIndex} under another tree node.`
+        : `Moved cell ${childIndex} under Root.`
+    );
     void current.context.save();
     this.updateNotebookInfo();
   }
@@ -1073,11 +1115,41 @@ class AIAssistantPanel extends Widget {
   private updateStatusMessage(): void {
     const status = this.node.querySelector(
       '#ai-assistant-status'
-    ) as HTMLElement;
+    ) as HTMLElement | null;
 
-    if (status) {
-      status.textContent = this.statusMessage || 'Ready.';
+    if (!status) {
+      return;
     }
+
+    const statusText = status.querySelector(
+      '.jp-ai-assistant-status-text'
+    ) as HTMLElement | null;
+    const progress = status.querySelector(
+      '.jp-ai-assistant-status-progress'
+    ) as HTMLElement | null;
+    const progressBar = status.querySelector(
+      '.jp-ai-assistant-status-progress-bar'
+    ) as HTMLElement | null;
+
+    status.hidden = !this.statusMessage;
+
+    if (statusText) {
+      statusText.textContent = this.statusMessage;
+    }
+
+    if (progress && progressBar) {
+      const hasProgress = this.statusProgress !== null;
+      progress.hidden = !hasProgress;
+      progressBar.style.width = `${Math.round(
+        Math.max(0, Math.min(1, this.statusProgress ?? 0)) * 100
+      )}%`;
+    }
+  }
+
+  private setAssistantStatus(message: string, progress: number | null = null): void {
+    this.statusMessage = message;
+    this.statusProgress = progress;
+    this.updateStatusMessage();
   }
 
   // 监听 notebook 内容变化，同步删除/插入 cell 后的前端状态。
@@ -1464,14 +1536,38 @@ class AIAssistantPanel extends Widget {
 
   private async refreshSummaries(): Promise<void> {
     const cells = this.getCurrentCells();
+    const totalCells = cells.length;
 
-    for (const cell of cells) {
+    if (totalCells === 0) {
+      this.setAssistantStatus('No notebook cells to summarize.');
+      return;
+    }
+
+    this.setAssistantStatus(
+      `Refreshing summaries: 0/${totalCells} complete (0%).`,
+      0
+    );
+
+    for (let index = 0; index < totalCells; index++) {
+      const cell = cells[index];
       const response = await summarizeCell(this.serverSettings, cell);
       const summaryData = this.normalizeSummaryResponse(response);
       console.log('[AI Assistant] summarize-cell response:', response);
       console.log('[AI Assistant] normalized summary data:', summaryData);
       this.summaries.set(cell.cellId, summaryData);
+
+      const completed = index + 1;
+      const progress = completed / totalCells;
+      this.setAssistantStatus(
+        `Refreshing summaries: ${completed}/${totalCells} complete (${Math.round(
+          progress * 100
+        )}%).`,
+        progress
+      );
+      this.updateNotebookInfo();
     }
+
+    this.setAssistantStatus(`Summaries refreshed for ${totalCells} cells.`, 1);
     this.saveCacheToNotebook();
     this.updateNotebookInfo();
   }
@@ -1544,7 +1640,9 @@ class AIAssistantPanel extends Widget {
     }
 
     this.pendingSuggestionCellID = selectedCell.cellId;
-    this.statusMessage = `Generating next-step suggestion for cell ${cellIndex}.`;
+    this.setAssistantStatus(
+      `Requesting next-step suggestions for cell ${cellIndex}.`
+    );
     this.updateNotebookInfo();
 
     const context = this.buildNotebookContext(cellIndex);
@@ -1568,7 +1666,9 @@ class AIAssistantPanel extends Widget {
     ]);
     const savedSuggestions = this.suggestions.get(selectedCell.cellId) ?? [];
     this.pendingSuggestionCellID = '';
-    this.statusMessage = `Generated ${savedSuggestions.length} suggestions for cell ${cellIndex}.`;
+    this.setAssistantStatus(
+      `Generated ${savedSuggestions.length} suggestions for cell ${cellIndex}.`
+    );
     this.saveCacheToNotebook();
     this.updateNotebookInfo();
   }
@@ -1768,7 +1868,7 @@ class AIAssistantPanel extends Widget {
       ...(this.suggestions.get(cell.cellId) ?? []),
       customSuggestion
     ]);
-    this.statusMessage = 'Custom suggestion added.';
+    this.setAssistantStatus('Custom suggestion added.');
     this.saveCacheToNotebook();
     this.updateNotebookInfo();
   }
@@ -1782,7 +1882,7 @@ class AIAssistantPanel extends Widget {
       this.getSuggestionIdentity(suggestion)
     );
     this.pendingSuggestionCellID = cell.cellId;
-    this.statusMessage = `Generating content for ${suggestion.id}.`;
+    this.setAssistantStatus('Generating content for selected suggestion.', 0.25);
     this.updateNotebookInfo();
 
     const context = this.buildNotebookContext(cell.cellIndex);
@@ -1801,6 +1901,7 @@ class AIAssistantPanel extends Widget {
     };
 
     this.generatedSuggestions.set(suggestionKey, generatedSuggestion);
+    this.setAssistantStatus('Inserting generated cell into notebook.', 0.5);
     const generatedCell = await this.createOrUpdateGeneratedCell(
       cell,
       generatedSuggestion
@@ -1808,7 +1909,7 @@ class AIAssistantPanel extends Widget {
     this.pendingSuggestionCellID = '';
 
     if (generatedCell) {
-      this.statusMessage = 'Generated cell created. Summarizing generated cell.';
+      this.setAssistantStatus('Summarizing generated cell.', 0.75);
       this.updateNotebookInfo();
 
       try {
@@ -1818,15 +1919,17 @@ class AIAssistantPanel extends Widget {
         );
         const summaryData = this.normalizeSummaryResponse(summaryResponse);
         this.summaries.set(generatedCell.cellId, summaryData);
-        this.statusMessage = response.message;
+        this.setAssistantStatus('Selected suggestion inserted successfully.', 1);
       } catch (error) {
         console.error('Failed to summarize generated cell:', error);
-        this.statusMessage = 'Generated cell created, but summary failed.';
+        this.setAssistantStatus(
+          'Selected suggestion inserted. Summary update failed.'
+        );
       }
 
       this.saveCacheToNotebook();
     } else {
-      this.statusMessage = response.message;
+      this.setAssistantStatus(response.message);
     }
 
     this.updateNotebookInfo();
