@@ -102,8 +102,7 @@ Fixed 固定显示，Hover 悬浮显示。 */
 /* Tree 外层容器：允许横向滚动，避免放大后内容被侧边栏裁掉。 */
 .jp-ai-assistant-tree {
   margin-top: 8px;
-  overflow-x: auto;
-  overflow-y: visible;
+  overflow: auto visible;
   padding-bottom: 8px;
 }
 
@@ -195,7 +194,7 @@ Fixed 固定显示，Hover 悬浮显示。 */
   align-items: start;
   display: grid;
   gap: 10px;
-  grid-template-columns: 56px minmax(0, 1fr);
+  grid-template-columns: max-content minmax(0, 1fr);
   position: relative;
 }
 
@@ -236,6 +235,39 @@ Fixed 固定显示，Hover 悬浮显示。 */
   width: 56px;
 }
 
+.jp-ai-assistant-tree-node-label {
+  display: block;
+  font-size: var(--jp-ui-font-size2);
+  font-weight: 600;
+  line-height: 1.1;
+}
+
+.jp-ai-assistant-tree-node-button.jp-ai-assistant-tree-node-title-label {
+  align-items: flex-start;
+  height: auto;
+  min-height: 56px;
+  min-width: 56px;
+  max-width: 260px;
+  padding: 8px 10px;
+  row-gap: 4px;
+  text-align: left;
+  width: max-content;
+}
+
+.jp-ai-assistant-tree-node-button.jp-ai-assistant-tree-node-title-label
+  .jp-ai-assistant-tree-node-label {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.jp-ai-assistant-tree-node-button.jp-ai-assistant-tree-node-title-label[data-cell-type='markdown'] {
+  border-radius: 999px;
+}
+
+.jp-ai-assistant-tree-node-button.jp-ai-assistant-tree-node-title-label[data-cell-type='code'] {
+  border-radius: 8px;
+}
+
 /* Code cell 使用方形 node。 */
 .jp-ai-assistant-tree-node-button.jp-ai-assistant-tree-node-code,
 .jp-ai-assistant-tree-node-button[data-cell-type='code'] {
@@ -272,22 +304,33 @@ Fixed 固定显示，Hover 悬浮显示。 */
   outline-offset: 4px;
 }
 
-.jp-ai-assistant-tree-node-button span {
-  display: block;
-  font-size: var(--jp-ui-font-size2);
-  font-weight: 600;
-  line-height: 1.1;
-}
-
-.jp-ai-assistant-tree-node-button small {
+.jp-ai-assistant-tree-node-meta {
   color: var(--jp-ui-font-color2);
+  display: block;
   font-size: var(--jp-ui-font-size0);
-  font-weight: 600;
+  font-weight: 500;
   line-height: 1;
+  text-transform: uppercase;
 }
 
 .jp-ai-assistant-tree-node-generated .jp-ai-assistant-tree-node-button {
+  background: var(--jp-layout-color2);
+  border-color: var(--jp-brand-color2);
   border-style: dashed;
+}
+
+.jp-ai-assistant-tree-node-ai-badge {
+  background: var(--jp-brand-color1);
+  border-radius: 999px;
+  color: var(--jp-ui-inverse-font-color1);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1;
+  padding: 3px 5px;
+  position: absolute;
+  right: -7px;
+  top: -7px;
 }
 
 /* Fixed 模式下的 summary：固定显示在 node 右侧。 */
@@ -312,7 +355,7 @@ Fixed 固定显示，Hover 悬浮显示。 */
   overflow-wrap: anywhere;
   padding: 8px;
   position: absolute;
-  left: 64px;
+  left: calc(100% + 12px);
   text-align: left;
   top: 4px;
   white-space: normal;
@@ -357,7 +400,6 @@ Fixed 固定显示，Hover 悬浮显示。 */
   background: var(--jp-brand-color0);
   outline: none;
 }
-
 
 /* 显示suggestionsns */
 .jp-ai-assistant-cell-suggestions {

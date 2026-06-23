@@ -178,7 +178,7 @@ class AIAssistantPanel extends Widget {
           <button id="tree-zoom-in" type="button" title="Zoom in tree">+</button>
         </div>
         <div class="jp-ai-assistant-tree-legend">
-          Square nodes are code cells. Circle nodes are markdown cells.
+          Angular nodes are code cells. Rounded nodes are markdown cells.
         </div>
         <div id="notebook-tree">
           <div class="jp-ai-assistant-tree-empty">
@@ -673,10 +673,26 @@ class AIAssistantPanel extends Widget {
       cellId: string,
       cellIndex: number,
       cellType: string,
+      title: string,
       summary: string,
       isGenerated: boolean
     ): string => {
       const normalizedCellType = cellType.toLowerCase();
+      const trimmedTitle = title.trim();
+      const nodeLabel = trimmedTitle || String(cellIndex);
+      const titleLabelClass = trimmedTitle
+        ? ' jp-ai-assistant-tree-node-title-label'
+        : '';
+      const cellTypeLabel =
+        normalizedCellType === 'markdown' ? 'markdown' : 'code';
+      const nodeMetaMarkup = trimmedTitle
+        ? `<span class="jp-ai-assistant-tree-node-meta">#${cellIndex} · ${this.escapeHtml(
+          cellTypeLabel
+        )}</span>`
+        : '';
+      const aiBadgeMarkup = isGenerated
+        ? '<span class="jp-ai-assistant-tree-node-ai-badge">AI</span>'
+        : '';
       const activeClass =
         cellIndex === activeCellIndex
           ? ' jp-ai-assistant-tree-node-active'
@@ -707,7 +723,7 @@ class AIAssistantPanel extends Widget {
       return `
         <div class="jp-ai-assistant-tree-node${activeClass}${generatedClass}">
           <button
-            class="jp-ai-assistant-tree-node-button${nodeShapeClass}"
+            class="jp-ai-assistant-tree-node-button${nodeShapeClass}${titleLabelClass}"
             type="button"
             data-cell-index="${cellIndex}"
             data-cell-id="${this.escapeHtml(cellId)}"
@@ -715,8 +731,11 @@ class AIAssistantPanel extends Widget {
             draggable="true"
             title="Jump to cell ${cellIndex}"
           >
-            <span>${cellIndex}</span>
-            ${isGenerated ? '<small>AI</small>' : ''}
+            ${aiBadgeMarkup}
+            <span class="jp-ai-assistant-tree-node-label">${this.escapeHtml(
+              nodeLabel
+            )}</span>
+            ${nodeMetaMarkup}
             ${hoverSummaryMarkup}
           </button>
           ${fixedSummaryMarkup}
@@ -734,8 +753,9 @@ class AIAssistantPanel extends Widget {
       }
 
       const cellType = cell.type;
-      const summary =
-        this.getSummaryData(cellId)?.summary || 'No summary generated yet.';
+      const summaryData = this.getSummaryData(cellId);
+      const title = summaryData?.title || '';
+      const summary = summaryData?.summary || 'No summary generated yet.';
       const childNodes = this.renderChildTreeNodes(
         current,
         cellId,
@@ -744,7 +764,7 @@ class AIAssistantPanel extends Widget {
 
       treeNodes.push(`
         <div class="jp-ai-assistant-tree-family">
-          ${renderTreeNode(cellId, i, cellType, summary, generatedCellIdSet.has(cellId))}
+          ${renderTreeNode(cellId, i, cellType, title, summary, generatedCellIdSet.has(cellId))}
           ${childNodes}
         </div>
       `);
@@ -798,6 +818,7 @@ class AIAssistantPanel extends Widget {
       cellId: string,
       cellIndex: number,
       cellType: string,
+      title: string,
       summary: string,
       isGenerated: boolean
     ) => string,
@@ -830,9 +851,11 @@ class AIAssistantPanel extends Widget {
       const generatedCell = model.cells.get(generatedCellIndex);
       const generatedSuggestion =
         this.findGeneratedSuggestionByCellId(childCellId);
+      const summaryData = this.getSummaryData(childCellId);
+      const title = summaryData?.title || '';
       const summary =
+        summaryData?.summary ||
         generatedSuggestion?.title ||
-        this.getSummaryData(childCellId)?.summary ||
         'No summary generated yet.';
       const nestedChildNodes = this.renderChildTreeNodes(
         panel,
@@ -847,6 +870,7 @@ class AIAssistantPanel extends Widget {
         childCellId,
         generatedCellIndex,
         generatedCell.type,
+        title,
         summary,
         this.isGeneratedCellId(childCellId)
       )}
@@ -1776,21 +1800,46 @@ class AIAssistantPanel extends Widget {
     };
 
     this.generatedSuggestions.set(suggestionKey, generatedSuggestion);
-    await this.createOrUpdateGeneratedCell(cell, generatedSuggestion);
+    const generatedCell = await this.createOrUpdateGeneratedCell(
+      cell,
+      generatedSuggestion
+    );
     this.pendingSuggestionCellID = '';
-    this.statusMessage = response.message;
+
+    if (generatedCell) {
+      this.statusMessage = 'Generated cell created. Summarizing generated cell.';
+      this.updateNotebookInfo();
+
+      try {
+        const summaryResponse = await summarizeCell(
+          this.serverSettings,
+          generatedCell
+        );
+        const summaryData = this.normalizeSummaryResponse(summaryResponse);
+        this.summaries.set(generatedCell.cellId, summaryData);
+        this.statusMessage = response.message;
+      } catch (error) {
+        console.error('Failed to summarize generated cell:', error);
+        this.statusMessage = 'Generated cell created, but summary failed.';
+      }
+
+      this.saveCacheToNotebook();
+    } else {
+      this.statusMessage = response.message;
+    }
+
     this.updateNotebookInfo();
   }
 
   private async createOrUpdateGeneratedCell(
     sourceCell: ICellDescriptor,
     suggestion: ISuggestion
-  ): Promise<void> {
+  ): Promise<ICellDescriptor | null> {
     const current = this.notebookTracker.currentWidget;
     const model = current?.content.model;
 
     if (!current || !model) {
-      return;
+      return null;
     }
 
     const cellData = this.createGeneratedCellData(sourceCell, suggestion);
@@ -1814,7 +1863,7 @@ class AIAssistantPanel extends Widget {
       );
 
       if (sourceCellIndex < 0) {
-        return;
+        return null;
       }
 
       targetIndex = this.findGeneratedCellInsertIndex(current, sourceCell);
@@ -1828,6 +1877,13 @@ class AIAssistantPanel extends Widget {
     current.activate();
     current.content.activate();
     await current.content.scrollToItem(targetIndex, 'center');
+
+    return {
+      cellId: insertedCellId,
+      cellIndex: targetIndex,
+      cellType: cellData.cell_type,
+      source: suggestion.content
+    };
   }
 
   private hydrateGeneratedCellRelations(): void {
