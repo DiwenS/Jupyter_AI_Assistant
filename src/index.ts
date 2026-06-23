@@ -329,9 +329,8 @@ class AIAssistantPanel extends Widget {
         />
       </label>
 
-      ${
-        needsApiKey
-          ? `
+      ${needsApiKey
+        ? `
       <label class="jp-ai-assistant-llm-field">
         <span>API Key</span>
         <input
@@ -342,7 +341,7 @@ class AIAssistantPanel extends Widget {
           autocomplete="off"
         />
       </label>`
-          : ''
+        : ''
       }
 
       <div class="jp-ai-assistant-llm-row">
@@ -694,15 +693,15 @@ class AIAssistantPanel extends Widget {
       const fixedSummaryMarkup =
         this.summaryDisplayMode === 'fixed'
           ? `<div class="jp-ai-assistant-tree-node-summary-fixed">${this.escapeHtml(
-              summary
-            )}</div>`
+            summary
+          )}</div>`
           : '';
       // Hover 模式：summary 作为 tooltip，鼠标悬浮或键盘 focus 时显示。
       const hoverSummaryMarkup =
         this.summaryDisplayMode === 'hover'
           ? `<div class="jp-ai-assistant-tree-node-tooltip">${this.escapeHtml(
-              summary
-            )}</div>`
+            summary
+          )}</div>`
           : '';
 
       return `
@@ -845,12 +844,12 @@ class AIAssistantPanel extends Widget {
       childNodes.push(`
         <div class="jp-ai-assistant-tree-family">
           ${renderTreeNode(
-            childCellId,
-            generatedCellIndex,
-            generatedCell.type,
-            summary,
-            this.isGeneratedCellId(childCellId)
-          )}
+        childCellId,
+        generatedCellIndex,
+        generatedCell.type,
+        summary,
+        this.isGeneratedCellId(childCellId)
+      )}
           ${nestedChildNodes}
         </div>
       `);
@@ -1627,7 +1626,7 @@ class AIAssistantPanel extends Widget {
           const optionDescription = document.createElement('span');
           optionDescription.className =
             'jp-ai-assistant-suggestion-description';
-          optionDescription.textContent = suggestion.description;
+          optionDescription.textContent = suggestion.cellType;
           option.appendChild(optionDescription);
 
           panel.appendChild(option);
@@ -1655,11 +1654,16 @@ class AIAssistantPanel extends Widget {
     titleInput.placeholder = 'Suggestion title';
     titleInput.dataset.lmSuppressShortcuts = 'true';
 
-    const descriptionInput = document.createElement('input');
-    descriptionInput.type = 'text';
-    descriptionInput.className = 'jp-ai-assistant-custom-suggestion-input';
-    descriptionInput.placeholder = 'Suggestion description';
-    descriptionInput.dataset.lmSuppressShortcuts = 'true';
+    const cellTypeSelect = document.createElement('select');
+    cellTypeSelect.className = 'jp-ai-assistant-custom-suggestion-input';
+    cellTypeSelect.dataset.lmSuppressShortcuts = 'true';
+
+    ['code', 'markdown'].forEach(cellType => {
+      const option = document.createElement('option');
+      option.value = cellType;
+      option.textContent = cellType;
+      cellTypeSelect.appendChild(option);
+    });
 
     const addButton = document.createElement('button');
     addButton.type = 'button';
@@ -1669,13 +1673,13 @@ class AIAssistantPanel extends Widget {
 
     const addCustomSuggestion = () => {
       const customTitle = titleInput.value.trim();
-      const customDescription = descriptionInput.value.trim();
+      const customCellType = cellTypeSelect.value;
 
-      if (!customTitle && !customDescription) {
+      if (!customTitle) {
         return;
       }
 
-      this.addCustomSuggestionForCell(cell, customTitle, customDescription);
+      this.addCustomSuggestionForCell(cell, customTitle, customCellType);
     };
 
     const stopNotebookFocus = (event: MouseEvent) => {
@@ -1690,9 +1694,9 @@ class AIAssistantPanel extends Widget {
     };
 
     titleInput.onmousedown = stopNotebookFocus;
-    descriptionInput.onmousedown = stopNotebookFocus;
+    cellTypeSelect.onmousedown = stopNotebookFocus;
     titleInput.onkeydown = submitOnEnter;
-    descriptionInput.onkeydown = submitOnEnter;
+    cellTypeSelect.onkeydown = submitOnEnter;
 
     addButton.onmousedown = event => {
       event.preventDefault();
@@ -1706,7 +1710,7 @@ class AIAssistantPanel extends Widget {
     };
 
     inputGroup.appendChild(titleInput);
-    inputGroup.appendChild(descriptionInput);
+    inputGroup.appendChild(cellTypeSelect);
     customRow.appendChild(inputGroup);
     customRow.appendChild(addButton);
     panel.appendChild(customRow);
@@ -1716,17 +1720,17 @@ class AIAssistantPanel extends Widget {
   private addCustomSuggestionForCell(
     cell: ICellDescriptor,
     customTitle: string,
-    customDescription: string
+    customCellType: string
   ): void {
-    const title = customTitle || customDescription;
-    const description = customDescription || customTitle;
+    const title = customTitle;
+    const cellType = customCellType === 'markdown' ? 'markdown' : 'code';
     const customSuggestion = this.withClientSuggestionKey(
       cell.cellId,
       {
         id: `user-suggestion-${Date.now()}`,
         title,
-        description,
-        cellType: 'code',
+        description: cellType,
+        cellType,
         content: '',
         metadata: {
           source: 'user'
