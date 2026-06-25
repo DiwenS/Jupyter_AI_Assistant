@@ -22,6 +22,45 @@
   padding: 8px;
 }
 
+.jp-ai-assistant-status {
+  background: var(--jp-layout-color2);
+  border: 1px solid var(--jp-border-color2);
+  border-radius: 4px;
+  color: var(--jp-ui-font-color1);
+  display: grid;
+  gap: 6px;
+  margin: 8px 0 10px;
+  padding: 8px;
+}
+
+.jp-ai-assistant-status[hidden] {
+  display: none;
+}
+
+.jp-ai-assistant-status-text {
+  font-size: var(--jp-ui-font-size1);
+  line-height: 1.35;
+}
+
+.jp-ai-assistant-status-progress {
+  background: var(--jp-layout-color1);
+  border: 1px solid var(--jp-border-color2);
+  border-radius: 999px;
+  height: 6px;
+  overflow: hidden;
+}
+
+.jp-ai-assistant-status-progress[hidden] {
+  display: none;
+}
+
+.jp-ai-assistant-status-progress-bar {
+  background: var(--jp-brand-color1);
+  height: 100%;
+  transition: width 120ms ease-out;
+  width: 0;
+}
+
 /* Notebook Tree 标题行：左侧标题，右侧切换summary显示模式 */
 .jp-ai-assistant-section-header {
   align-items: center;
@@ -32,6 +71,61 @@
 
 .jp-ai-assistant-section-header h3 {
   margin-bottom: 0;
+}
+
+.jp-ai-assistant-model-settings-header {
+  justify-content: flex-start;
+}
+
+.jp-ai-assistant-model-settings-header h3 {
+  align-items: center;
+  display: inline-flex;
+  gap: 6px;
+}
+
+.jp-ai-assistant-collapse-button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 3px;
+  color: var(--jp-ui-font-color1);
+  cursor: pointer;
+  display: inline-flex;
+  height: 18px;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  width: 18px;
+}
+
+.jp-ai-assistant-collapse-chevron {
+  border-color: currentcolor;
+  border-style: solid;
+  border-width: 0 2px 2px 0;
+  display: inline-block;
+  height: 7px;
+  margin-top: -3px;
+  transform: rotate(45deg);
+  transition: transform 120ms ease;
+  width: 7px;
+}
+
+.jp-ai-assistant-collapse-button[aria-expanded='true']
+  .jp-ai-assistant-collapse-chevron {
+  margin-top: 3px;
+  transform: rotate(-135deg);
+}
+
+.jp-ai-assistant-collapse-button:hover,
+.jp-ai-assistant-collapse-button:focus {
+  background: var(--jp-layout-color2);
+  color: var(--jp-brand-color1);
+  outline: none;
+}
+
+.jp-ai-assistant-collapse-button:focus-visible {
+  box-shadow: 0 0 0 2px
+    color-mix(in srgb, var(--jp-brand-color1) 35%, transparent);
 }
 
 /* Summary 显示模式：
@@ -102,14 +196,13 @@ Fixed 固定显示，Hover 悬浮显示。 */
 /* Tree 外层容器：允许横向滚动，避免放大后内容被侧边栏裁掉。 */
 .jp-ai-assistant-tree {
   margin-top: 8px;
-  overflow-x: auto;
-  overflow-y: visible;
+  overflow: auto visible;
   padding-bottom: 8px;
 }
 
 /* Tree canvas 是实际被缩放的区域，transform-origin 保证从左上角缩放。 */
 .jp-ai-assistant-tree-canvas {
-  min-width: 220px;
+  min-width: 560px;
   transform-origin: top left;
 }
 
@@ -170,6 +263,25 @@ Fixed 固定显示，Hover 悬浮显示。 */
 .jp-ai-assistant-tree-family {
   display: grid;
   gap: 10px;
+  position: relative;
+}
+
+.jp-ai-assistant-tree-family:hover,
+.jp-ai-assistant-tree-family:focus-within {
+  z-index: 20;
+}
+
+.jp-ai-assistant-tree-family:has(
+    > .jp-ai-assistant-tree-generated-children
+  )::after {
+  background: var(--jp-border-color2);
+  bottom: 18px;
+  content: '';
+  left: 66px;
+  position: absolute;
+  top: 27px;
+  width: 2px;
+  z-index: 0;
 }
 
 .jp-ai-assistant-tree-generated-children {
@@ -195,8 +307,14 @@ Fixed 固定显示，Hover 悬浮显示。 */
   align-items: start;
   display: grid;
   gap: 10px;
-  grid-template-columns: 56px minmax(0, 1fr);
+  grid-template-columns: max-content 220px;
   position: relative;
+  z-index: 1;
+}
+
+.jp-ai-assistant-tree-node:hover,
+.jp-ai-assistant-tree-node:focus-within {
+  z-index: 30;
 }
 
 /* 从主干线连接到每个 node 的横向分支线。 */
@@ -236,6 +354,39 @@ Fixed 固定显示，Hover 悬浮显示。 */
   width: 56px;
 }
 
+.jp-ai-assistant-tree-node-label {
+  display: block;
+  font-size: var(--jp-ui-font-size2);
+  font-weight: 600;
+  line-height: 1.1;
+}
+
+.jp-ai-assistant-tree-node-button.jp-ai-assistant-tree-node-title-label {
+  align-items: flex-start;
+  height: auto;
+  min-height: 56px;
+  min-width: 56px;
+  max-width: 260px;
+  padding: 8px 10px;
+  row-gap: 4px;
+  text-align: left;
+  width: max-content;
+}
+
+.jp-ai-assistant-tree-node-button.jp-ai-assistant-tree-node-title-label
+  .jp-ai-assistant-tree-node-label {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.jp-ai-assistant-tree-node-button.jp-ai-assistant-tree-node-title-label[data-cell-type='markdown'] {
+  border-radius: 999px;
+}
+
+.jp-ai-assistant-tree-node-button.jp-ai-assistant-tree-node-title-label[data-cell-type='code'] {
+  border-radius: 8px;
+}
+
 /* Code cell 使用方形 node。 */
 .jp-ai-assistant-tree-node-button.jp-ai-assistant-tree-node-code,
 .jp-ai-assistant-tree-node-button[data-cell-type='code'] {
@@ -272,22 +423,29 @@ Fixed 固定显示，Hover 悬浮显示。 */
   outline-offset: 4px;
 }
 
-.jp-ai-assistant-tree-node-button span {
-  display: block;
-  font-size: var(--jp-ui-font-size2);
-  font-weight: 600;
-  line-height: 1.1;
-}
-
-.jp-ai-assistant-tree-node-button small {
+.jp-ai-assistant-tree-node-meta {
   color: var(--jp-ui-font-color2);
+  display: block;
   font-size: var(--jp-ui-font-size0);
-  font-weight: 600;
+  font-weight: 500;
   line-height: 1;
+  text-transform: uppercase;
 }
 
 .jp-ai-assistant-tree-node-generated .jp-ai-assistant-tree-node-button {
+  background: var(--jp-layout-color2);
+  border-color: var(--jp-brand-color2);
   border-style: dashed;
+}
+
+.jp-ai-assistant-tree-node-compact-ai {
+  color: var(--jp-brand-color1);
+  display: block;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1;
+  margin-top: 2px;
 }
 
 /* Fixed 模式下的 summary：固定显示在 node 右侧。 */
@@ -295,9 +453,11 @@ Fixed 固定显示，Hover 悬浮显示。 */
   color: var(--jp-ui-font-color2);
   font-size: var(--jp-ui-font-size1);
   line-height: 1.4;
-  max-width: 190px;
-  overflow-wrap: anywhere;
+  overflow-wrap: normal;
   padding-top: 5px;
+  white-space: normal;
+  width: 220px;
+  word-break: normal;
 }
 
 /* Hover 模式下的 summary tooltip：固定宽度，避免文字被挤成竖排。 */
@@ -312,12 +472,12 @@ Fixed 固定显示，Hover 悬浮显示。 */
   overflow-wrap: anywhere;
   padding: 8px;
   position: absolute;
-  left: 64px;
+  left: calc(100% + 12px);
   text-align: left;
   top: 4px;
   white-space: normal;
   width: 220px;
-  z-index: 10;
+  z-index: 100;
 }
 
 .jp-ai-assistant-tree-node-button:hover .jp-ai-assistant-tree-node-tooltip,
@@ -357,7 +517,6 @@ Fixed 固定显示，Hover 悬浮显示。 */
   background: var(--jp-brand-color0);
   outline: none;
 }
-
 
 /* 显示suggestionsns */
 .jp-ai-assistant-cell-suggestions {
@@ -460,6 +619,10 @@ Fixed 固定显示，Hover 悬浮显示。 */
   gap: 8px;
   margin-bottom: 10px;
   padding: 8px;
+}
+
+.jp-ai-assistant-llm-settings[hidden] {
+  display: none;
 }
 
 .jp-ai-assistant-llm-loading {
