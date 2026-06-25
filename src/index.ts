@@ -773,8 +773,8 @@ class AIAssistantPanel extends Widget {
             title="Jump to cell ${cellIndex}"
           >
             <span class="jp-ai-assistant-tree-node-label">${this.escapeHtml(
-              nodeLabel
-            )}</span>
+        nodeLabel
+      )}</span>
             ${nodeMetaMarkup}
             ${compactAiMarkup}
             ${hoverSummaryMarkup}
@@ -890,13 +890,12 @@ class AIAssistantPanel extends Widget {
       }
 
       const generatedCell = model.cells.get(generatedCellIndex);
-      const generatedSuggestion =
-        this.findGeneratedSuggestionByCellId(childCellId);
+      // const generatedSuggestion =
+      //   this.findGeneratedSuggestionByCellId(childCellId);
       const summaryData = this.getSummaryData(childCellId);
       const title = summaryData?.title || '';
       const summary =
         summaryData?.summary ||
-        generatedSuggestion?.title ||
         'No summary generated yet.';
       const nestedChildNodes = this.renderChildTreeNodes(
         panel,
@@ -964,18 +963,18 @@ class AIAssistantPanel extends Widget {
     return childCellIds;
   }
 
-  // 根据 generated cell id 找到对应 suggestion，用于显示生成节点标题。
-  private findGeneratedSuggestionByCellId(
-    cellId: string
-  ): ISuggestion | undefined {
-    for (const [suggestionKey, generatedCellId] of this.generatedCellIds) {
-      if (generatedCellId === cellId) {
-        return this.generatedSuggestions.get(suggestionKey);
-      }
-    }
+  // // 根据 generated cell id 找到对应 suggestion，用于显示生成节点标题。
+  // private findGeneratedSuggestionByCellId(
+  //   cellId: string
+  // ): ISuggestion | undefined {
+  //   for (const [suggestionKey, generatedCellId] of this.generatedCellIds) {
+  //     if (generatedCellId === cellId) {
+  //       return this.generatedSuggestions.get(suggestionKey);
+  //     }
+  //   }
 
-    return undefined;
-  }
+  //   return undefined;
+  // }
 
   // 给 tree node 绑定拖拽事件，拖到另一个 node 上时更新 tree parent metadata。
   private attachTreeDragHandlers(notebookTree: HTMLElement): void {
