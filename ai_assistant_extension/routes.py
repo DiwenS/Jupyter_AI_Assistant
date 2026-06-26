@@ -177,11 +177,18 @@ class SuggestNextStepsHandler(APIHandler):
 
         suggestions = []
         for index, suggestion in enumerate(raw_suggestions):
+            if isinstance(suggestion, dict):
+                title = suggestion.get("suggestion", "")
+                cell_type = suggestion.get("cellType", "code")
+            else:
+                title = str(suggestion)
+                cell_type = "markdown"
+
             suggestions.append({
                 "id": f"suggestion-{index + 1}",
-                "title": suggestion.get("suggestion", ""),
-                "description": suggestion.get("cellType", "code"),
-                "cellType": suggestion.get("cellType", "code"),
+                "title": title,
+                "description": cell_type,
+                "cellType": cell_type,
                 "content": "# TODO: generate cell content here",
                 "metadata": {
                     "source": "llm"

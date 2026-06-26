@@ -165,6 +165,32 @@ def _join_url(base_url: str, path: str) -> str:
     """
     return f"{base_url.rstrip('/')}/{path.lstrip('/')}"
 
+def _is_openai_reasoning_or_new_model(model: str) -> bool:
+    """
+    Return True for OpenAI models that should avoid legacy chat parameters.
+
+    Some newer/reasoning models do not support max_tokens and need
+    max_completion_tokens instead. Some of them also have stricter support
+    for sampling parameters such as temperature.
+    """
+    model_name = (model or "").lower()
+
+    return (
+        model_name.startswith("gpt-5")
+        or model_name.startswith("o1")
+        or model_name.startswith("o3")
+        or model_name.startswith("o4")
+    )
+
+def _openai_token_limit_field(model: str) -> str:
+    """
+    Return the correct output-token parameter name for OpenAI-compatible APIs.
+    """
+    if _is_openai_reasoning_or_new_model(model):
+        return "max_completion_tokens"
+
+    return "max_tokens"
+
 def _clean_code_fences(text: str) -> str:
     """
     Remove simple markdown code fences from model output.
@@ -287,20 +313,28 @@ def _generate_with_openai_compatible(
         raise LLMError("Missing model for openai-compatible provider.")
 
     url = _join_url(base_url, "/chat/completions")
+
+    token_limit_field = _openai_token_limit_field(model)
+    token_limit_value = (
+        max_tokens
+        if max_tokens is not None
+        else max_tokens_value
+    )
+
     payload = {
         "model": model,
         "messages": messages,
-        "temperature": (
+        token_limit_field: token_limit_value,
+    }
+
+    # Newer/reasoning models may reject some sampling parameters.
+    # For safer defaults, only send temperature to regular chat models.
+    if not _is_openai_reasoning_or_new_model(model):
+        payload["temperature"] = (
             temperature
             if temperature is not None
             else temperature_value
-        ),
-        "max_tokens": (
-            max_tokens
-            if max_tokens is not None
-            else max_tokens_value
-        ),
-    }
+        )
 
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -309,6 +343,8 @@ def _generate_with_openai_compatible(
 
     print("[LLM] provider: openai-compatible")
     print("[LLM] model:", model)
+    print("[LLM] token limit field:", token_limit_field)
+    print("[LLM] payload keys:", list(payload.keys()))
     print("[LLM] payload size:", len(str(payload)))
 
     try:
