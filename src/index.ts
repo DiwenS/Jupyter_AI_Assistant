@@ -29,6 +29,7 @@ import {
 type SummaryDisplayMode = 'fixed' | 'hover';
 type GeneratedCellType = 'code' | 'markdown' | 'raw';
 const ROOT_TREE_PARENT_ID = 'ROOT';
+const CELL_SUMMARY_METADATA_KEY = 'ai_assistant_summary';
 interface IAssistantStatus {
   message: string;
   progress: number | null;
@@ -244,6 +245,7 @@ class AIAssistantPanel extends Widget {
       this.suggestions.clear();
       const current = this.notebookTracker.currentWidget;
       if (current?.content.model) {
+        this.clearCellSummaryMetadata(current);
         (current.content.model.sharedModel as any).deleteMetadata(
           'ai_assistant_cache'
         );
@@ -347,8 +349,9 @@ class AIAssistantPanel extends Widget {
         />
       </label>
 
-      ${needsApiKey
-        ? `
+      ${
+        needsApiKey
+          ? `
       <label class="jp-ai-assistant-llm-field">
         <span>API Key</span>
         <input
@@ -359,7 +362,7 @@ class AIAssistantPanel extends Widget {
           autocomplete="off"
         />
       </label>`
-        : ''
+          : ''
       }
 
       <div class="jp-ai-assistant-llm-row">
@@ -731,8 +734,8 @@ class AIAssistantPanel extends Widget {
       const aiMetaLabel = isGenerated ? ' · AI' : '';
       const nodeMetaMarkup = trimmedTitle
         ? `<span class="jp-ai-assistant-tree-node-meta">#${cellIndex} · ${this.escapeHtml(
-          cellTypeLabel
-        )}${aiMetaLabel}</span>`
+            cellTypeLabel
+          )}${aiMetaLabel}</span>`
         : '';
       const compactAiMarkup =
         isGenerated && !trimmedTitle
@@ -754,15 +757,15 @@ class AIAssistantPanel extends Widget {
       const fixedSummaryMarkup =
         this.summaryDisplayMode === 'fixed'
           ? `<div class="jp-ai-assistant-tree-node-summary-fixed">${this.escapeHtml(
-            summary
-          )}</div>`
+              summary
+            )}</div>`
           : '';
       // Hover 模式：summary 作为 tooltip，鼠标悬浮或键盘 focus 时显示。
       const hoverSummaryMarkup =
         this.summaryDisplayMode === 'hover'
           ? `<div class="jp-ai-assistant-tree-node-tooltip">${this.escapeHtml(
-            summary
-          )}</div>`
+              summary
+            )}</div>`
           : '';
 
       return `
@@ -777,8 +780,8 @@ class AIAssistantPanel extends Widget {
             title="Jump to cell ${cellIndex}"
           >
             <span class="jp-ai-assistant-tree-node-label">${this.escapeHtml(
-        nodeLabel
-      )}</span>
+              nodeLabel
+            )}</span>
             ${nodeMetaMarkup}
             ${compactAiMarkup}
             ${hoverSummaryMarkup}
@@ -909,13 +912,13 @@ class AIAssistantPanel extends Widget {
       childNodes.push(`
         <div class="jp-ai-assistant-tree-family">
           ${renderTreeNode(
-        childCellId,
-        generatedCellIndex,
-        generatedCell.type,
-        title,
-        summary,
-        this.isGeneratedCellId(childCellId)
-      )}
+            childCellId,
+            generatedCellIndex,
+            generatedCell.type,
+            title,
+            summary,
+            this.isGeneratedCellId(childCellId)
+          )}
           ${nestedChildNodes}
         </div>
       `);
@@ -1447,7 +1450,91 @@ class AIAssistantPanel extends Widget {
   }
 
   private getSummaryData(cellId: string): ICellSummaryData | undefined {
-    return this.summaries.get(cellId);
+    return this.getCellSummaryData(cellId) ?? this.summaries.get(cellId);
+  }
+
+  private getCellSummaryData(cellId: string): ICellSummaryData | undefined {
+    const current = this.notebookTracker.currentWidget;
+    const model = current?.content.model;
+
+    if (!current || !model) {
+      return undefined;
+    }
+
+    const cellIndex = this.findCellIndexByCellId(current, cellId);
+
+    if (cellIndex < 0) {
+      return undefined;
+    }
+
+    const metadata = model.cells.get(cellIndex).sharedModel.getMetadata();
+    const summary = (metadata as Record<string, unknown>)[
+      CELL_SUMMARY_METADATA_KEY
+    ];
+    const summaryData = this.normalizeSummaryData(summary);
+
+    if (!summaryData.title && !summaryData.summary) {
+      return undefined;
+    }
+
+    return summaryData;
+  }
+
+  private setCellSummaryData(
+    cellId: string,
+    summaryData: ICellSummaryData
+  ): void {
+    const current = this.notebookTracker.currentWidget;
+    const model = current?.content.model;
+
+    if (!current || !model) {
+      return;
+    }
+
+    const cellIndex = this.findCellIndexByCellId(current, cellId);
+
+    if (cellIndex < 0) {
+      return;
+    }
+
+    model.cells
+      .get(cellIndex)
+      .sharedModel.setMetadata(
+        CELL_SUMMARY_METADATA_KEY,
+        JSON.parse(JSON.stringify(summaryData))
+      );
+  }
+
+  private loadSummariesFromCellMetadata(panel: NotebookPanel): void {
+    const model = panel.content.model;
+
+    if (!model) {
+      return;
+    }
+
+    for (let index = 0; index < model.cells.length; index++) {
+      const cell = model.cells.get(index);
+      const cellId = `${panel.context.path}:${cell.id}`;
+      const summaryData = this.getCellSummaryData(cellId);
+
+      if (summaryData) {
+        this.summaries.set(cellId, summaryData);
+      }
+    }
+  }
+
+  private clearCellSummaryMetadata(panel: NotebookPanel): void {
+    const model = panel.content.model;
+
+    if (!model) {
+      return;
+    }
+
+    for (let index = 0; index < model.cells.length; index++) {
+      model.cells
+        .get(index)
+        .sharedModel.deleteMetadata(CELL_SUMMARY_METADATA_KEY);
+    }
   }
 
   // 前端兜底限制 title 最多 5 个单词，和后端约定保持一致。
@@ -1464,6 +1551,9 @@ class AIAssistantPanel extends Widget {
       return;
     }
 
+    const notebookPath = current.context.path;
+    this.loadSummariesFromCellMetadata(current);
+
     let meta: any = null;
     try {
       meta = (model.sharedModel as any).getMetadata('ai_assistant_cache');
@@ -1477,7 +1567,6 @@ class AIAssistantPanel extends Widget {
       return;
     }
 
-    const notebookPath = current.context.path;
     console.log(
       '[AI Assistant] loadCache: found cache, notebookPath =',
       notebookPath
@@ -1489,10 +1578,11 @@ class AIAssistantPanel extends Widget {
 
     if (meta.summaries) {
       for (const [rawCellId, summary] of Object.entries(meta.summaries)) {
-        this.summaries.set(
-          `${notebookPath}:${rawCellId}`,
-          this.normalizeSummaryData(summary)
-        );
+        const cellId = `${notebookPath}:${rawCellId}`;
+
+        if (!this.summaries.has(cellId)) {
+          this.summaries.set(cellId, this.normalizeSummaryData(summary));
+        }
       }
     }
 
@@ -1521,14 +1611,6 @@ class AIAssistantPanel extends Widget {
 
     const notebookPath = current.context.path;
 
-    const summariesPlain: Record<string, ICellSummaryData> = {};
-    this.summaries.forEach((summary, cellId) => {
-      if (cellId.startsWith(`${notebookPath}:`)) {
-        const rawCellId = this.getRawCellId(cellId);
-        summariesPlain[rawCellId] = summary;
-      }
-    });
-
     const suggestionsPlain: Record<string, any[]> = {};
     this.suggestions.forEach((sugs, cellId) => {
       if (cellId.startsWith(`${notebookPath}:`)) {
@@ -1542,7 +1624,6 @@ class AIAssistantPanel extends Widget {
         'ai_assistant_cache',
         JSON.parse(
           JSON.stringify({
-            summaries: summariesPlain,
             suggestions: suggestionsPlain,
             savedAt: new Date().toISOString()
           })
@@ -1581,6 +1662,7 @@ class AIAssistantPanel extends Widget {
       console.log('[AI Assistant] summarize-cell response:', response);
       console.log('[AI Assistant] normalized summary data:', summaryData);
       this.summaries.set(cell.cellId, summaryData);
+      this.setCellSummaryData(cell.cellId, summaryData);
 
       const completed = index + 1;
       const progress = completed / totalCells;
@@ -1964,6 +2046,7 @@ class AIAssistantPanel extends Widget {
         );
         const summaryData = this.normalizeSummaryResponse(summaryResponse);
         this.summaries.set(generatedCell.cellId, summaryData);
+        this.setCellSummaryData(generatedCell.cellId, summaryData);
         this.setAssistantStatus(
           'Selected suggestion inserted successfully.',
           1,
