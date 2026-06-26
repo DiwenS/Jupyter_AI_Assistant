@@ -13,6 +13,7 @@ import {
   ICellDescriptor,
   ICellSummaryData,
   ICellSummaryResponse,
+  IContextSuggestion,
   ILLMConfig,
   INextStepContext,
   ISuggestion,
@@ -29,6 +30,15 @@ import {
 type SummaryDisplayMode = 'fixed' | 'hover';
 type GeneratedCellType = 'code' | 'markdown' | 'raw';
 const ROOT_TREE_PARENT_ID = 'ROOT';
+const CELL_SUMMARY_METADATA_KEY = 'ai_assistant_summary';
+const CELL_SUGGESTIONS_METADATA_KEY = 'ai_assistant_suggestions';
+interface IAssistantStatus {
+  message: string;
+  progress: number | null;
+}
+type IGeneratedSuggestion = ISuggestion & {
+  content: string;
+};
 type IGeneratedCellData = (
   | Partial<nbformat.ICodeCell>
   | Partial<nbformat.IMarkdownCell>
@@ -47,10 +57,8 @@ class AIAssistantPanel extends Widget {
   //AI next button 需要的 suggestions 数据结构，key 是 cellId，value 是对应的建议列表。
   private suggestions = new Map<string, ISuggestion[]>();
   private pendingSuggestionCellID = '';
-  private statusMessage = '';
-  private statusProgress: number | null = null;
+  private notebookStatuses = new Map<string, IAssistantStatus>();
   // selected/generated suggestion state uses sourceCellId + suggestionId as key.
-  private generatedSuggestions = new Map<string, ISuggestion>(); // 储存后端返回的带真实 content 的 suggestion
   private generatedCellIds = new Map<string, string>(); // source cellId + suggestionId -> generated child cell id
   private observedPanels = new Set<NotebookPanel>();
 
@@ -100,7 +108,6 @@ class AIAssistantPanel extends Widget {
     this.notebookTracker.currentChanged.connect(() => {
       this.summaries.clear();
       this.suggestions.clear();
-      this.generatedSuggestions.clear();
       this.generatedCellIds.clear();
 
       const current = this.notebookTracker.currentWidget;
@@ -236,14 +243,17 @@ class AIAssistantPanel extends Widget {
       '#clear-cache'
     ) as HTMLButtonElement;
 
-    clearCacheButton.onclick = () => {
+    clearCacheButton.onclick = async () => {
       this.summaries.clear();
       this.suggestions.clear();
       const current = this.notebookTracker.currentWidget;
       if (current?.content.model) {
+        this.clearCellSummaryMetadata(current);
+        this.clearCellSuggestionsMetadata(current);
         (current.content.model.sharedModel as any).deleteMetadata(
           'ai_assistant_cache'
         );
+        await current.context.save();
       }
       this.setAssistantStatus('Cache cleared.');
       this.updateNotebookInfo();
@@ -659,7 +669,7 @@ class AIAssistantPanel extends Widget {
 
     if (!current) {
       notebookInfo.innerHTML = 'No active notebook found.';
-      notebookTree.innerHTML = 'Open a notebook first.';
+      notebookTree.innerHTML = '';
       return;
     }
 
@@ -731,9 +741,10 @@ class AIAssistantPanel extends Widget {
           cellTypeLabel
         )}${aiMetaLabel}</span>`
         : '';
-      const compactAiMarkup = isGenerated && !trimmedTitle
-        ? '<span class="jp-ai-assistant-tree-node-compact-ai">AI</span>'
-        : '';
+      const compactAiMarkup =
+        isGenerated && !trimmedTitle
+          ? '<span class="jp-ai-assistant-tree-node-compact-ai">AI</span>'
+          : '';
       const activeClass =
         cellIndex === activeCellIndex
           ? ' jp-ai-assistant-tree-node-active'
@@ -773,8 +784,8 @@ class AIAssistantPanel extends Widget {
             title="Jump to cell ${cellIndex}"
           >
             <span class="jp-ai-assistant-tree-node-label">${this.escapeHtml(
-              nodeLabel
-            )}</span>
+        nodeLabel
+      )}</span>
             ${nodeMetaMarkup}
             ${compactAiMarkup}
             ${hoverSummaryMarkup}
@@ -890,14 +901,9 @@ class AIAssistantPanel extends Widget {
       }
 
       const generatedCell = model.cells.get(generatedCellIndex);
-      const generatedSuggestion =
-        this.findGeneratedSuggestionByCellId(childCellId);
       const summaryData = this.getSummaryData(childCellId);
       const title = summaryData?.title || '';
-      const summary =
-        summaryData?.summary ||
-        generatedSuggestion?.title ||
-        'No summary generated yet.';
+      const summary = summaryData?.summary || 'No summary generated yet.';
       const nestedChildNodes = this.renderChildTreeNodes(
         panel,
         childCellId,
@@ -962,19 +968,6 @@ class AIAssistantPanel extends Widget {
     }
 
     return childCellIds;
-  }
-
-  // 根据 generated cell id 找到对应 suggestion，用于显示生成节点标题。
-  private findGeneratedSuggestionByCellId(
-    cellId: string
-  ): ISuggestion | undefined {
-    for (const [suggestionKey, generatedCellId] of this.generatedCellIds) {
-      if (generatedCellId === cellId) {
-        return this.generatedSuggestions.get(suggestionKey);
-      }
-    }
-
-    return undefined;
   }
 
   // 给 tree node 绑定拖拽事件，拖到另一个 node 上时更新 tree parent metadata。
@@ -1112,6 +1105,11 @@ class AIAssistantPanel extends Widget {
     return false;
   }
 
+  private getNotebookStatusKey(panel?: NotebookPanel | null): string {
+    const targetPanel = panel ?? this.notebookTracker.currentWidget;
+    return targetPanel?.context.path ?? '';
+  }
+
   private updateStatusMessage(): void {
     const status = this.node.querySelector(
       '#ai-assistant-status'
@@ -1130,25 +1128,39 @@ class AIAssistantPanel extends Widget {
     const progressBar = status.querySelector(
       '.jp-ai-assistant-status-progress-bar'
     ) as HTMLElement | null;
+    const currentStatus = this.notebookStatuses.get(
+      this.getNotebookStatusKey()
+    );
 
-    status.hidden = !this.statusMessage;
+    status.hidden = !currentStatus?.message;
 
     if (statusText) {
-      statusText.textContent = this.statusMessage;
+      statusText.textContent = currentStatus?.message ?? '';
     }
 
     if (progress && progressBar) {
-      const hasProgress = this.statusProgress !== null;
+      const statusProgress = currentStatus?.progress ?? null;
+      const hasProgress = statusProgress !== null;
       progress.hidden = !hasProgress;
       progressBar.style.width = `${Math.round(
-        Math.max(0, Math.min(1, this.statusProgress ?? 0)) * 100
+        Math.max(0, Math.min(1, statusProgress ?? 0)) * 100
       )}%`;
     }
   }
 
-  private setAssistantStatus(message: string, progress: number | null = null): void {
-    this.statusMessage = message;
-    this.statusProgress = progress;
+  private setAssistantStatus(
+    message: string,
+    progress: number | null = null,
+    statusKey = this.getNotebookStatusKey()
+  ): void {
+    if (!statusKey) {
+      return;
+    }
+
+    this.notebookStatuses.set(statusKey, {
+      message,
+      progress
+    });
     this.updateStatusMessage();
   }
 
@@ -1175,6 +1187,7 @@ class AIAssistantPanel extends Widget {
     }
 
     const existingCellIds = new Set<string>();
+    let changed = false;
 
     for (let index = 0; index < model.cells.length; index++) {
       const cell = model.cells.get(index);
@@ -1187,8 +1200,21 @@ class AIAssistantPanel extends Widget {
       }
 
       this.generatedCellIds.delete(suggestionKey);
-      this.generatedSuggestions.delete(suggestionKey);
+      const [sourceCellId, suggestionIdentity] = suggestionKey.split('::');
+
+      if (sourceCellId && suggestionIdentity) {
+        this.setSuggestionGeneratedState(
+          sourceCellId,
+          suggestionIdentity,
+          null
+        );
+        changed = true;
+      }
     });
+
+    if (changed) {
+      void this.saveCacheToNotebook();
+    }
   }
 
   // notebook 中选中 cell 后，自动把侧边栏 tree 中对应 node 滚动到可见区域。
@@ -1297,13 +1323,18 @@ class AIAssistantPanel extends Widget {
   private buildNotebookContext(cellIndex: number): INextStepContext {
     const cells = this.getCurrentCells();
     const tree = this.buildContextTree(cells);
+    const selectedCell = cells[cellIndex];
+    const currentCellSuggestions = selectedCell
+      ? this.getContextSuggestionsForCell(selectedCell.cellId)
+      : [];
     // 限制前后cell的最大传输数量
     return {
       //previousCells: cellsWithSummaries.slice(0, cellIndex),
       previousCells: cells.slice(Math.max(0, cellIndex - 5), cellIndex),
       //nextCells: cellsWithSummaries.slice(cellIndex + 1),
       nextCells: cells.slice(cellIndex + 1, cellIndex + 4),
-      tree
+      tree,
+      currentCellSuggestions
     };
   }
 
@@ -1362,7 +1393,15 @@ class AIAssistantPanel extends Widget {
 
     const metadata = model.cells.get(cellIndex).sharedModel.getMetadata();
     const manualParentRawCellId = metadata.ai_assistant_tree_parent_cell_id;
-    const generatedParentRawCellId = metadata.ai_assistant_parent_cell_id;
+    const generatedSource =
+      typeof metadata.ai_assistant_generated_source === 'object' &&
+        metadata.ai_assistant_generated_source !== null
+        ? (metadata.ai_assistant_generated_source as Record<string, unknown>)
+        : {};
+    const generatedParentRawCellId =
+      typeof generatedSource.parent_cell_id === 'string'
+        ? generatedSource.parent_cell_id
+        : undefined;
     const parentRawCellId =
       typeof manualParentRawCellId === 'string'
         ? manualParentRawCellId
@@ -1427,7 +1466,328 @@ class AIAssistantPanel extends Widget {
   }
 
   private getSummaryData(cellId: string): ICellSummaryData | undefined {
-    return this.summaries.get(cellId);
+    return this.getCellSummaryData(cellId) ?? this.summaries.get(cellId);
+  }
+
+  private getCellSummaryData(cellId: string): ICellSummaryData | undefined {
+    const current = this.notebookTracker.currentWidget;
+    const model = current?.content.model;
+
+    if (!current || !model) {
+      return undefined;
+    }
+
+    const cellIndex = this.findCellIndexByCellId(current, cellId);
+
+    if (cellIndex < 0) {
+      return undefined;
+    }
+
+    const metadata = model.cells.get(cellIndex).sharedModel.getMetadata();
+    const summary = (metadata as Record<string, unknown>)[
+      CELL_SUMMARY_METADATA_KEY
+    ];
+    const summaryData = this.normalizeSummaryData(summary);
+
+    if (!summaryData.title && !summaryData.summary) {
+      return undefined;
+    }
+
+    return summaryData;
+  }
+
+  private setCellSummaryData(
+    cellId: string,
+    summaryData: ICellSummaryData
+  ): void {
+    const current = this.notebookTracker.currentWidget;
+    const model = current?.content.model;
+
+    if (!current || !model) {
+      return;
+    }
+
+    const cellIndex = this.findCellIndexByCellId(current, cellId);
+
+    if (cellIndex < 0) {
+      return;
+    }
+
+    model.cells
+      .get(cellIndex)
+      .sharedModel.setMetadata(
+        CELL_SUMMARY_METADATA_KEY,
+        JSON.parse(JSON.stringify(summaryData))
+      );
+  }
+
+  private loadSummariesFromCellMetadata(panel: NotebookPanel): void {
+    const model = panel.content.model;
+
+    if (!model) {
+      return;
+    }
+
+    for (let index = 0; index < model.cells.length; index++) {
+      const cell = model.cells.get(index);
+      const cellId = `${panel.context.path}:${cell.id}`;
+      const summaryData = this.getCellSummaryData(cellId);
+
+      if (summaryData) {
+        this.summaries.set(cellId, summaryData);
+      }
+    }
+  }
+
+  private clearCellSummaryMetadata(panel: NotebookPanel): void {
+    const model = panel.content.model;
+
+    if (!model) {
+      return;
+    }
+
+    for (let index = 0; index < model.cells.length; index++) {
+      model.cells
+        .get(index)
+        .sharedModel.deleteMetadata(CELL_SUMMARY_METADATA_KEY);
+    }
+  }
+
+  private normalizeSuggestionData(rawSuggestion: unknown): ISuggestion | null {
+    if (typeof rawSuggestion !== 'object' || rawSuggestion === null) {
+      return null;
+    }
+
+    const suggestionObject = rawSuggestion as Record<string, unknown>;
+    const source =
+      typeof suggestionObject.source === 'string'
+        ? suggestionObject.source
+        : 'metadata';
+    const suggestionKey =
+      typeof suggestionObject.key === 'string'
+        ? suggestionObject.key
+        : undefined;
+    const id =
+      typeof suggestionObject.id === 'string'
+        ? suggestionObject.id
+        : suggestionKey || `suggestion-${Date.now()}`;
+    const title =
+      typeof suggestionObject.title === 'string' ? suggestionObject.title : '';
+    const cellType =
+      typeof suggestionObject.cellType === 'string'
+        ? suggestionObject.cellType
+        : 'code';
+    const description =
+      typeof suggestionObject.description === 'string'
+        ? suggestionObject.description
+        : cellType;
+    const generatedObject =
+      typeof suggestionObject.generated === 'object' &&
+        suggestionObject.generated !== null
+        ? (suggestionObject.generated as Record<string, unknown>)
+        : {};
+    const generatedStatus = generatedObject.status === 'yes' ? 'yes' : 'no';
+    const generatedCellId =
+      generatedStatus === 'yes' && typeof generatedObject.cell_id === 'string'
+        ? generatedObject.cell_id
+        : undefined;
+    const normalizedMetadata: ISuggestion['metadata'] = {
+      source
+    };
+
+    const normalizedSuggestion: ISuggestion = {
+      id,
+      key: suggestionKey,
+      title,
+      description,
+      cellType,
+      source,
+      generated:
+        generatedStatus === 'yes' && generatedCellId
+          ? {
+            status: generatedStatus,
+            cell_id: generatedCellId
+          }
+          : {
+            status: 'no'
+          },
+      metadata: normalizedMetadata
+    };
+
+    return normalizedSuggestion;
+  }
+
+  private serializeSuggestionForCellMetadata(
+    suggestion: ISuggestion
+  ): Record<string, unknown> {
+    const suggestionKey = this.getSuggestionIdentity(suggestion);
+    const source = suggestion.source ?? suggestion.metadata.source;
+
+    return JSON.parse(
+      JSON.stringify({
+        key: suggestionKey,
+        id: suggestion.id,
+        title: suggestion.title,
+        description: suggestion.description,
+        cellType: suggestion.cellType,
+        source,
+        generated: suggestion.generated ?? { status: 'no' }
+      })
+    );
+  }
+
+  private getContextSuggestionsForCell(cellId: string): IContextSuggestion[] {
+    return (
+      this.suggestions.get(cellId) ?? this.getCellSuggestions(cellId)
+    ).map(suggestion => ({
+      title: suggestion.title,
+      cellType: suggestion.cellType,
+      generated: suggestion.generated ?? { status: 'no' }
+    }));
+  }
+
+  private getCellSuggestions(cellId: string): ISuggestion[] {
+    const current = this.notebookTracker.currentWidget;
+    const model = current?.content.model;
+
+    if (!current || !model) {
+      return [];
+    }
+
+    const cellIndex = this.findCellIndexByCellId(current, cellId);
+
+    if (cellIndex < 0) {
+      return [];
+    }
+
+    const metadata = model.cells.get(cellIndex).sharedModel.getMetadata();
+    const rawSuggestions = (metadata as Record<string, unknown>)[
+      CELL_SUGGESTIONS_METADATA_KEY
+    ];
+
+    if (!Array.isArray(rawSuggestions)) {
+      return [];
+    }
+
+    return rawSuggestions
+      .map(rawSuggestion => this.normalizeSuggestionData(rawSuggestion))
+      .filter((suggestion): suggestion is ISuggestion => suggestion !== null);
+  }
+
+  private setCellSuggestions(cellId: string, suggestions: ISuggestion[]): void {
+    const current = this.notebookTracker.currentWidget;
+    const model = current?.content.model;
+
+    if (!current || !model) {
+      return;
+    }
+
+    const cellIndex = this.findCellIndexByCellId(current, cellId);
+
+    if (cellIndex < 0) {
+      return;
+    }
+
+    model.cells
+      .get(cellIndex)
+      .sharedModel.setMetadata(
+        CELL_SUGGESTIONS_METADATA_KEY,
+        JSON.parse(
+          JSON.stringify(
+            suggestions.map(suggestion =>
+              this.serializeSuggestionForCellMetadata(suggestion)
+            )
+          )
+        )
+      );
+  }
+
+  private loadSuggestionsFromCellMetadata(panel: NotebookPanel): void {
+    const model = panel.content.model;
+
+    if (!model) {
+      return;
+    }
+
+    for (let index = 0; index < model.cells.length; index++) {
+      const cell = model.cells.get(index);
+      const cellId = `${panel.context.path}:${cell.id}`;
+      const suggestions = this.getCellSuggestions(cellId);
+
+      if (suggestions.length > 0) {
+        this.suggestions.set(cellId, suggestions);
+        this.hydrateGeneratedCellIdsFromSuggestions(cellId, suggestions);
+      }
+    }
+  }
+
+  private hydrateGeneratedCellIdsFromSuggestions(
+    cellId: string,
+    suggestions: ISuggestion[]
+  ): void {
+    const current = this.notebookTracker.currentWidget;
+
+    if (!current) {
+      return;
+    }
+
+    suggestions.forEach(suggestion => {
+      const generatedCellRawId = suggestion.generated?.cell_id;
+
+      if (suggestion.generated?.status !== 'yes' || !generatedCellRawId) {
+        return;
+      }
+
+      this.generatedCellIds.set(
+        this.createSuggestionKey(
+          cellId,
+          this.getSuggestionIdentity(suggestion)
+        ),
+        `${current.context.path}:${generatedCellRawId}`
+      );
+    });
+  }
+
+  private setSuggestionGeneratedState(
+    cellId: string,
+    suggestionIdentity: string,
+    generatedCellId: string | null
+  ): void {
+    const suggestions = this.suggestions.get(cellId) ?? [];
+    const nextSuggestions = suggestions.map(suggestion => {
+      if (this.getSuggestionIdentity(suggestion) !== suggestionIdentity) {
+        return suggestion;
+      }
+
+      return {
+        ...suggestion,
+        generated: generatedCellId
+          ? {
+            status: 'yes' as const,
+            cell_id: this.getRawCellId(generatedCellId)
+          }
+          : {
+            status: 'no' as const
+          }
+      };
+    });
+
+    this.suggestions.set(cellId, nextSuggestions);
+    this.setCellSuggestions(cellId, nextSuggestions);
+  }
+
+  private clearCellSuggestionsMetadata(panel: NotebookPanel): void {
+    const model = panel.content.model;
+
+    if (!model) {
+      return;
+    }
+
+    for (let index = 0; index < model.cells.length; index++) {
+      model.cells
+        .get(index)
+        .sharedModel.deleteMetadata(CELL_SUGGESTIONS_METADATA_KEY);
+    }
   }
 
   // 前端兜底限制 title 最多 5 个单词，和后端约定保持一致。
@@ -1435,7 +1795,7 @@ class AIAssistantPanel extends Widget {
     return title.trim().split(/\s+/).filter(Boolean).slice(0, 5).join(' ');
   }
 
-  // ── 从 notebook metadata 加载缓存 ───────────────────────────────────
+  // Load persisted assistant data from per-cell metadata.
   private loadCacheFromNotebook(): void {
     const current = this.notebookTracker.currentWidget;
     const model = current?.content.model;
@@ -1444,90 +1804,36 @@ class AIAssistantPanel extends Widget {
       return;
     }
 
-    let meta: any = null;
-    try {
-      meta = (model.sharedModel as any).getMetadata('ai_assistant_cache');
-    } catch (e) {
-      console.log('[AI Assistant] loadCache: getMetadata failed', e);
-      return;
-    }
-
-    if (!meta) {
-      console.log('[AI Assistant] loadCache: no cache found in metadata');
-      return;
-    }
-
     const notebookPath = current.context.path;
-    console.log(
-      '[AI Assistant] loadCache: found cache, notebookPath =',
-      notebookPath
-    );
-    console.log(
-      '[AI Assistant] loadCache: summaries keys =',
-      Object.keys(meta.summaries || {})
-    );
-
-    if (meta.summaries) {
-      for (const [rawCellId, summary] of Object.entries(meta.summaries)) {
-        this.summaries.set(
-          `${notebookPath}:${rawCellId}`,
-          this.normalizeSummaryData(summary)
-        );
-      }
-    }
-
-    if (meta.suggestions) {
-      for (const [rawCellId, sugs] of Object.entries(meta.suggestions)) {
-        this.suggestions.set(
-          `${notebookPath}:${rawCellId}`,
-          sugs as ISuggestion[]
-        );
-      }
-    }
+    this.loadSummariesFromCellMetadata(current);
+    this.loadSuggestionsFromCellMetadata(current);
 
     console.log(
-      '[AI Assistant] Cache loaded! summaries count =',
+      '[AI Assistant] Cell metadata loaded for notebook:',
+      notebookPath,
+      'summaries count =',
       this.summaries.size
     );
   }
 
-  // ── 把缓存写入 notebook metadata ──────────────────────────────────────
-  private saveCacheToNotebook(): void {
+  // Update the cache timestamp and persist notebook changes to disk.
+  private async saveCacheToNotebook(): Promise<void> {
     const current = this.notebookTracker.currentWidget;
     const model = current?.content.model;
     if (!current || !model) {
       return;
     }
 
-    const notebookPath = current.context.path;
-
-    const summariesPlain: Record<string, ICellSummaryData> = {};
-    this.summaries.forEach((summary, cellId) => {
-      if (cellId.startsWith(`${notebookPath}:`)) {
-        const rawCellId = this.getRawCellId(cellId);
-        summariesPlain[rawCellId] = summary;
-      }
-    });
-
-    const suggestionsPlain: Record<string, any[]> = {};
-    this.suggestions.forEach((sugs, cellId) => {
-      if (cellId.startsWith(`${notebookPath}:`)) {
-        const rawCellId = this.getRawCellId(cellId);
-        suggestionsPlain[rawCellId] = sugs;
-      }
-    });
-
     try {
       (model.sharedModel as any).setMetadata(
         'ai_assistant_cache',
         JSON.parse(
           JSON.stringify({
-            summaries: summariesPlain,
-            suggestions: suggestionsPlain,
             savedAt: new Date().toISOString()
           })
         )
       );
+      await current.context.save();
       console.log('[AI Assistant] Cache saved to notebook metadata.');
     } catch (e) {
       console.error('[AI Assistant] Failed to save cache:', e);
@@ -1535,17 +1841,23 @@ class AIAssistantPanel extends Widget {
   }
 
   private async refreshSummaries(): Promise<void> {
+    const statusKey = this.getNotebookStatusKey();
     const cells = this.getCurrentCells();
     const totalCells = cells.length;
 
     if (totalCells === 0) {
-      this.setAssistantStatus('No notebook cells to summarize.');
+      this.setAssistantStatus(
+        'No notebook cells to summarize.',
+        null,
+        statusKey
+      );
       return;
     }
 
     this.setAssistantStatus(
       `Refreshing summaries: 0/${totalCells} complete (0%).`,
-      0
+      0,
+      statusKey
     );
 
     for (let index = 0; index < totalCells; index++) {
@@ -1555,6 +1867,7 @@ class AIAssistantPanel extends Widget {
       console.log('[AI Assistant] summarize-cell response:', response);
       console.log('[AI Assistant] normalized summary data:', summaryData);
       this.summaries.set(cell.cellId, summaryData);
+      this.setCellSummaryData(cell.cellId, summaryData);
 
       const completed = index + 1;
       const progress = completed / totalCells;
@@ -1562,13 +1875,18 @@ class AIAssistantPanel extends Widget {
         `Refreshing summaries: ${completed}/${totalCells} complete (${Math.round(
           progress * 100
         )}%).`,
-        progress
+        progress,
+        statusKey
       );
       this.updateNotebookInfo();
     }
 
-    this.setAssistantStatus(`Summaries refreshed for ${totalCells} cells.`, 1);
-    this.saveCacheToNotebook();
+    this.setAssistantStatus(
+      `Summaries refreshed for ${totalCells} cells.`,
+      1,
+      statusKey
+    );
+    await this.saveCacheToNotebook();
     this.updateNotebookInfo();
   }
 
@@ -1632,6 +1950,7 @@ class AIAssistantPanel extends Widget {
     panel: NotebookPanel,
     cellIndex: number
   ): Promise<void> {
+    const statusKey = this.getNotebookStatusKey(panel);
     const cells = this.getCurrentCells(); //获取notebooks中所有cell信息
     const selectedCell = cells[cellIndex]; //获取点击的cell信息
 
@@ -1641,7 +1960,9 @@ class AIAssistantPanel extends Widget {
 
     this.pendingSuggestionCellID = selectedCell.cellId;
     this.setAssistantStatus(
-      `Requesting next-step suggestions for cell ${cellIndex}.`
+      `Requesting next-step suggestions for cell ${cellIndex}.`,
+      null,
+      statusKey
     );
     this.updateNotebookInfo();
 
@@ -1654,22 +1975,25 @@ class AIAssistantPanel extends Widget {
 
     // 重新请求 AI Next 时，只保留仍有关联 generated cell 的旧 suggestions。
     this.pruneMissingGeneratedCells();
-    const generatedSuggestions = this.getGeneratedSuggestionsForCell(
+    const retainedGeneratedSuggestions = this.getGeneratedSuggestionsForCell(
       selectedCell.cellId
     );
     const nextSuggestions = response.suggestions.map((suggestion, index) =>
       this.withClientSuggestionKey(selectedCell.cellId, suggestion, index)
     );
     this.suggestions.set(selectedCell.cellId, [
-      ...generatedSuggestions,
+      ...retainedGeneratedSuggestions,
       ...nextSuggestions
     ]);
     const savedSuggestions = this.suggestions.get(selectedCell.cellId) ?? [];
+    this.setCellSuggestions(selectedCell.cellId, savedSuggestions);
     this.pendingSuggestionCellID = '';
     this.setAssistantStatus(
-      `Generated ${savedSuggestions.length} suggestions for cell ${cellIndex}.`
+      `Generated ${savedSuggestions.length} suggestions for cell ${cellIndex}.`,
+      null,
+      statusKey
     );
-    this.saveCacheToNotebook();
+    await this.saveCacheToNotebook();
     this.updateNotebookInfo();
   }
   //显示具体的suggestions
@@ -1856,7 +2180,10 @@ class AIAssistantPanel extends Widget {
         title,
         description: cellType,
         cellType,
-        content: '',
+        source: 'user',
+        generated: {
+          status: 'no'
+        },
         metadata: {
           source: 'user'
         }
@@ -1868,8 +2195,12 @@ class AIAssistantPanel extends Widget {
       ...(this.suggestions.get(cell.cellId) ?? []),
       customSuggestion
     ]);
+    this.setCellSuggestions(
+      cell.cellId,
+      this.suggestions.get(cell.cellId) ?? []
+    );
     this.setAssistantStatus('Custom suggestion added.');
-    this.saveCacheToNotebook();
+    void this.saveCacheToNotebook();
     this.updateNotebookInfo();
   }
 
@@ -1877,12 +2208,31 @@ class AIAssistantPanel extends Widget {
     cell: ICellDescriptor,
     suggestion: ISuggestion
   ): Promise<void> {
+    const statusKey = this.getNotebookStatusKey();
+    const suggestionIdentity = this.getSuggestionIdentity(suggestion);
     const suggestionKey = this.createSuggestionKey(
       cell.cellId,
-      this.getSuggestionIdentity(suggestion)
+      suggestionIdentity
     );
+    const existingGeneratedCellIndex =
+      this.findGeneratedCellIndexForSuggestion(suggestionKey);
+
+    if (existingGeneratedCellIndex >= 0) {
+      await this.jumpToCell(existingGeneratedCellIndex);
+      this.setAssistantStatus(
+        'Jumped to existing generated cell for selected suggestion.',
+        null,
+        statusKey
+      );
+      return;
+    }
+
     this.pendingSuggestionCellID = cell.cellId;
-    this.setAssistantStatus('Generating content for selected suggestion.', 0.25);
+    this.setAssistantStatus(
+      'Generating content for selected suggestion.',
+      0.25,
+      statusKey
+    );
     this.updateNotebookInfo();
 
     const context = this.buildNotebookContext(cell.cellIndex);
@@ -1892,16 +2242,34 @@ class AIAssistantPanel extends Widget {
       suggestion,
       context
     );
-    const generatedSuggestion = {
+    const generatedContent = response.suggestion.content;
+
+    if (typeof generatedContent !== 'string') {
+      this.pendingSuggestionCellID = '';
+      this.setAssistantStatus(
+        'Selected suggestion did not return generated content.',
+        null,
+        statusKey
+      );
+      this.updateNotebookInfo();
+      return;
+    }
+
+    const generatedSuggestion: IGeneratedSuggestion = {
       ...response.suggestion,
+      key: this.getSuggestionIdentity(suggestion),
+      source: response.suggestion.source ?? response.suggestion.metadata.source,
+      content: generatedContent,
       metadata: {
-        ...response.suggestion.metadata,
-        ai_assistant_suggestion_key: this.getSuggestionIdentity(suggestion)
+        ...response.suggestion.metadata
       }
     };
 
-    this.generatedSuggestions.set(suggestionKey, generatedSuggestion);
-    this.setAssistantStatus('Inserting generated cell into notebook.', 0.5);
+    this.setAssistantStatus(
+      'Inserting generated cell into notebook.',
+      0.5,
+      statusKey
+    );
     const generatedCell = await this.createOrUpdateGeneratedCell(
       cell,
       generatedSuggestion
@@ -1909,7 +2277,13 @@ class AIAssistantPanel extends Widget {
     this.pendingSuggestionCellID = '';
 
     if (generatedCell) {
-      this.setAssistantStatus('Summarizing generated cell.', 0.75);
+      this.setSuggestionGeneratedState(
+        cell.cellId,
+        suggestionIdentity,
+        generatedCell.cellId
+      );
+      await this.saveCacheToNotebook();
+      this.setAssistantStatus('Summarizing generated cell.', 0.75, statusKey);
       this.updateNotebookInfo();
 
       try {
@@ -1919,17 +2293,24 @@ class AIAssistantPanel extends Widget {
         );
         const summaryData = this.normalizeSummaryResponse(summaryResponse);
         this.summaries.set(generatedCell.cellId, summaryData);
-        this.setAssistantStatus('Selected suggestion inserted successfully.', 1);
+        this.setCellSummaryData(generatedCell.cellId, summaryData);
+        this.setAssistantStatus(
+          'Selected suggestion inserted successfully.',
+          1,
+          statusKey
+        );
       } catch (error) {
         console.error('Failed to summarize generated cell:', error);
         this.setAssistantStatus(
-          'Selected suggestion inserted. Summary update failed.'
+          'Selected suggestion inserted. Summary update failed.',
+          null,
+          statusKey
         );
       }
 
-      this.saveCacheToNotebook();
+      await this.saveCacheToNotebook();
     } else {
-      this.setAssistantStatus(response.message);
+      this.setAssistantStatus(response.message, null, statusKey);
     }
 
     this.updateNotebookInfo();
@@ -1937,7 +2318,7 @@ class AIAssistantPanel extends Widget {
 
   private async createOrUpdateGeneratedCell(
     sourceCell: ICellDescriptor,
-    suggestion: ISuggestion
+    suggestion: IGeneratedSuggestion
   ): Promise<ICellDescriptor | null> {
     const current = this.notebookTracker.currentWidget;
     const model = current?.content.model;
@@ -2006,46 +2387,33 @@ class AIAssistantPanel extends Widget {
         continue;
       }
 
-      const parentRawCellId = metadata.ai_assistant_parent_cell_id;
-      const suggestionId = metadata.ai_assistant_suggestion_id;
-
+      const generatedSource =
+        typeof metadata.ai_assistant_generated_source === 'object' &&
+          metadata.ai_assistant_generated_source !== null
+          ? (metadata.ai_assistant_generated_source as Record<string, unknown>)
+          : {};
+      const parentRawCellId =
+        typeof generatedSource.parent_cell_id === 'string'
+          ? generatedSource.parent_cell_id
+          : undefined;
+      const suggestionIdentity =
+        typeof generatedSource.suggestion_key === 'string'
+          ? generatedSource.suggestion_key
+          : undefined;
       if (
         typeof parentRawCellId !== 'string' ||
-        typeof suggestionId !== 'string'
+        typeof suggestionIdentity !== 'string'
       ) {
         continue;
       }
 
       const parentCellId = `${current.context.path}:${parentRawCellId}`;
       const generatedCellId = `${current.context.path}:${cell.id}`;
-      const suggestionIdentity =
-        typeof metadata.ai_assistant_suggestion_key === 'string'
-          ? metadata.ai_assistant_suggestion_key
-          : suggestionId;
       const suggestionKey = this.createSuggestionKey(
         parentCellId,
         suggestionIdentity
       );
-      const suggestionTitle =
-        typeof metadata.ai_assistant_suggestion_title === 'string'
-          ? metadata.ai_assistant_suggestion_title
-          : 'Generated from selected suggestion.';
-
       this.generatedCellIds.set(suggestionKey, generatedCellId);
-
-      if (!this.generatedSuggestions.has(suggestionKey)) {
-        this.generatedSuggestions.set(suggestionKey, {
-          id: suggestionId,
-          title: suggestionTitle,
-          description: '',
-          cellType: cell.type,
-          content: cell.sharedModel.getSource(),
-          metadata: {
-            source: 'metadata',
-            ai_assistant_suggestion_key: suggestionIdentity
-          }
-        });
-      }
     }
   }
 
@@ -2053,12 +2421,24 @@ class AIAssistantPanel extends Widget {
     return `${cellId}::${suggestionId}`;
   }
 
+  private findGeneratedCellIndexForSuggestion(suggestionKey: string): number {
+    const current = this.notebookTracker.currentWidget;
+    const generatedCellId = this.generatedCellIds.get(suggestionKey);
+
+    if (!current || !generatedCellId) {
+      return -1;
+    }
+
+    return this.findCellIndexByCellId(current, generatedCellId);
+  }
+
   // 优先使用前端生成的唯一 key，避免后端复用 suggestion id 导致误高亮。
   private getSuggestionIdentity(suggestion: ISuggestion): string {
-    const metadata = suggestion.metadata as Record<string, unknown>;
-    const clientKey = metadata.ai_assistant_suggestion_key;
+    if (typeof suggestion.key === 'string') {
+      return suggestion.key;
+    }
 
-    return typeof clientKey === 'string' ? clientKey : suggestion.id;
+    return suggestion.id;
   }
 
   // 给每次新返回的 suggestion 加唯一 key，用来区分不同批次建议。
@@ -2067,11 +2447,21 @@ class AIAssistantPanel extends Widget {
     suggestion: ISuggestion,
     index: number
   ): ISuggestion {
+    const suggestionWithoutContent = { ...suggestion };
+    delete suggestionWithoutContent.content;
+    const suggestionKey = `${this.getRawCellId(cellId)}-${Date.now()}-${index}-${suggestion.id}`;
+    const source = suggestion.source ?? suggestion.metadata.source;
+
     return {
-      ...suggestion,
+      ...suggestionWithoutContent,
+      key: suggestionKey,
+      source,
+      generated: {
+        status: 'no'
+      },
       metadata: {
         ...suggestion.metadata,
-        ai_assistant_suggestion_key: `${this.getRawCellId(cellId)}-${Date.now()}-${index}-${suggestion.id}`
+        source
       }
     };
   }
@@ -2141,7 +2531,7 @@ class AIAssistantPanel extends Widget {
 
   private createGeneratedCellData(
     sourceCell: ICellDescriptor,
-    suggestion: ISuggestion
+    suggestion: IGeneratedSuggestion
   ): IGeneratedCellData {
     const cellType = this.normalizeGeneratedCellType(suggestion.cellType);
     const baseCell = {
@@ -2149,10 +2539,11 @@ class AIAssistantPanel extends Widget {
       source: suggestion.content,
       metadata: {
         ai_assistant_generated: true,
-        ai_assistant_parent_cell_id: this.getRawCellId(sourceCell.cellId),
-        ai_assistant_suggestion_title: suggestion.title,
-        ai_assistant_suggestion_id: suggestion.id,
-        ai_assistant_suggestion_key: this.getSuggestionIdentity(suggestion)
+        ai_assistant_generated_source: {
+          parent_cell_id: this.getRawCellId(sourceCell.cellId),
+          suggestion_key: this.getSuggestionIdentity(suggestion),
+          suggestion_title: suggestion.title
+        }
       }
     };
 

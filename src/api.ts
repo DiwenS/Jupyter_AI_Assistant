@@ -36,13 +36,28 @@ export interface ICellSummaryResponse {
 //一条suggestion的基本信息
 export interface ISuggestion {
   id: string;
+  key?: string;
   title: string;
   description: string;
   cellType: string;
-  content: string;
+  content?: string;
+  source?: string;
+  generated?: {
+    status: 'yes' | 'no';
+    cell_id?: string;
+  };
   metadata: {
     source: string;
     [key: string]: unknown;
+  };
+}
+
+export interface IContextSuggestion {
+  title: string;
+  cellType: string;
+  generated: {
+    status: 'yes' | 'no';
+    cell_id?: string;
   };
 }
 
@@ -51,6 +66,7 @@ export interface INextStepContext {
   previousCells: ICellDescriptor[];
   nextCells: ICellDescriptor[];
   tree: ITreeNode[];
+  currentCellSuggestions: IContextSuggestion[];
 }
 
 //后端生成当前cell的建议后，返回给前端的完整suggestions
@@ -74,11 +90,6 @@ export interface ITreeNode {
   parentId: string; // 根节点下的 cell 使用 'ROOT' 作为 parentId。
   children?: ITreeNode[];
 }
-
-/**
- TODO: 完善后端endpoint for select-suggestion
- * 返回的ISuggestion中content字段应该是generated
- */
 
 export interface ISelectSuggestionResponse {
   status: 'success' | 'error';
@@ -156,7 +167,6 @@ export async function suggestNextSteps(
     context
   };
 
-  // 构造 request config
   const requestConfig = {
     method: 'POST',
     headers: {
@@ -165,7 +175,6 @@ export async function suggestNextSteps(
     body: JSON.stringify(requestBody)
   };
 
-  // 打印完整请求信息
   console.log('========== HTTP REQUEST ==========');
   console.log('Endpoint:', 'suggest-next-steps');
   console.log('Method:', requestConfig.method);
@@ -179,10 +188,7 @@ export async function suggestNextSteps(
     serverSettings,
     {
       method: 'POST',
-      body: JSON.stringify({
-        selectedCell,
-        context
-      })
+      body: JSON.stringify(requestBody)
     }
   );
 
