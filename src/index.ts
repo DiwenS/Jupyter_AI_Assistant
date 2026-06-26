@@ -29,6 +29,10 @@ import {
 type SummaryDisplayMode = 'fixed' | 'hover';
 type GeneratedCellType = 'code' | 'markdown' | 'raw';
 const ROOT_TREE_PARENT_ID = 'ROOT';
+interface IAssistantStatus {
+  message: string;
+  progress: number | null;
+}
 type IGeneratedCellData = (
   | Partial<nbformat.ICodeCell>
   | Partial<nbformat.IMarkdownCell>
@@ -47,8 +51,7 @@ class AIAssistantPanel extends Widget {
   //AI next button 需要的 suggestions 数据结构，key 是 cellId，value 是对应的建议列表。
   private suggestions = new Map<string, ISuggestion[]>();
   private pendingSuggestionCellID = '';
-  private statusMessage = '';
-  private statusProgress: number | null = null;
+  private notebookStatuses = new Map<string, IAssistantStatus>();
   // selected/generated suggestion state uses sourceCellId + suggestionId as key.
   private generatedSuggestions = new Map<string, ISuggestion>(); // 储存后端返回的带真实 content 的 suggestion
   private generatedCellIds = new Map<string, string>(); // source cellId + suggestionId -> generated child cell id
@@ -659,7 +662,7 @@ class AIAssistantPanel extends Widget {
 
     if (!current) {
       notebookInfo.innerHTML = 'No active notebook found.';
-      notebookTree.innerHTML = 'Open a notebook first.';
+      notebookTree.innerHTML = '';
       return;
     }
 
@@ -731,9 +734,10 @@ class AIAssistantPanel extends Widget {
           cellTypeLabel
         )}${aiMetaLabel}</span>`
         : '';
-      const compactAiMarkup = isGenerated && !trimmedTitle
-        ? '<span class="jp-ai-assistant-tree-node-compact-ai">AI</span>'
-        : '';
+      const compactAiMarkup =
+        isGenerated && !trimmedTitle
+          ? '<span class="jp-ai-assistant-tree-node-compact-ai">AI</span>'
+          : '';
       const activeClass =
         cellIndex === activeCellIndex
           ? ' jp-ai-assistant-tree-node-active'
@@ -894,9 +898,7 @@ class AIAssistantPanel extends Widget {
       //   this.findGeneratedSuggestionByCellId(childCellId);
       const summaryData = this.getSummaryData(childCellId);
       const title = summaryData?.title || '';
-      const summary =
-        summaryData?.summary ||
-        'No summary generated yet.';
+      const summary = summaryData?.summary || 'No summary generated yet.';
       const nestedChildNodes = this.renderChildTreeNodes(
         panel,
         childCellId,
@@ -1111,6 +1113,11 @@ class AIAssistantPanel extends Widget {
     return false;
   }
 
+  private getNotebookStatusKey(panel?: NotebookPanel | null): string {
+    const targetPanel = panel ?? this.notebookTracker.currentWidget;
+    return targetPanel?.context.path ?? '';
+  }
+
   private updateStatusMessage(): void {
     const status = this.node.querySelector(
       '#ai-assistant-status'
@@ -1129,25 +1136,39 @@ class AIAssistantPanel extends Widget {
     const progressBar = status.querySelector(
       '.jp-ai-assistant-status-progress-bar'
     ) as HTMLElement | null;
+    const currentStatus = this.notebookStatuses.get(
+      this.getNotebookStatusKey()
+    );
 
-    status.hidden = !this.statusMessage;
+    status.hidden = !currentStatus?.message;
 
     if (statusText) {
-      statusText.textContent = this.statusMessage;
+      statusText.textContent = currentStatus?.message ?? '';
     }
 
     if (progress && progressBar) {
-      const hasProgress = this.statusProgress !== null;
+      const statusProgress = currentStatus?.progress ?? null;
+      const hasProgress = statusProgress !== null;
       progress.hidden = !hasProgress;
       progressBar.style.width = `${Math.round(
-        Math.max(0, Math.min(1, this.statusProgress ?? 0)) * 100
+        Math.max(0, Math.min(1, statusProgress ?? 0)) * 100
       )}%`;
     }
   }
 
-  private setAssistantStatus(message: string, progress: number | null = null): void {
-    this.statusMessage = message;
-    this.statusProgress = progress;
+  private setAssistantStatus(
+    message: string,
+    progress: number | null = null,
+    statusKey = this.getNotebookStatusKey()
+  ): void {
+    if (!statusKey) {
+      return;
+    }
+
+    this.notebookStatuses.set(statusKey, {
+      message,
+      progress
+    });
     this.updateStatusMessage();
   }
 
@@ -1534,17 +1555,23 @@ class AIAssistantPanel extends Widget {
   }
 
   private async refreshSummaries(): Promise<void> {
+    const statusKey = this.getNotebookStatusKey();
     const cells = this.getCurrentCells();
     const totalCells = cells.length;
 
     if (totalCells === 0) {
-      this.setAssistantStatus('No notebook cells to summarize.');
+      this.setAssistantStatus(
+        'No notebook cells to summarize.',
+        null,
+        statusKey
+      );
       return;
     }
 
     this.setAssistantStatus(
       `Refreshing summaries: 0/${totalCells} complete (0%).`,
-      0
+      0,
+      statusKey
     );
 
     for (let index = 0; index < totalCells; index++) {
@@ -1561,12 +1588,17 @@ class AIAssistantPanel extends Widget {
         `Refreshing summaries: ${completed}/${totalCells} complete (${Math.round(
           progress * 100
         )}%).`,
-        progress
+        progress,
+        statusKey
       );
       this.updateNotebookInfo();
     }
 
-    this.setAssistantStatus(`Summaries refreshed for ${totalCells} cells.`, 1);
+    this.setAssistantStatus(
+      `Summaries refreshed for ${totalCells} cells.`,
+      1,
+      statusKey
+    );
     this.saveCacheToNotebook();
     this.updateNotebookInfo();
   }
@@ -1631,6 +1663,7 @@ class AIAssistantPanel extends Widget {
     panel: NotebookPanel,
     cellIndex: number
   ): Promise<void> {
+    const statusKey = this.getNotebookStatusKey(panel);
     const cells = this.getCurrentCells(); //获取notebooks中所有cell信息
     const selectedCell = cells[cellIndex]; //获取点击的cell信息
 
@@ -1640,7 +1673,9 @@ class AIAssistantPanel extends Widget {
 
     this.pendingSuggestionCellID = selectedCell.cellId;
     this.setAssistantStatus(
-      `Requesting next-step suggestions for cell ${cellIndex}.`
+      `Requesting next-step suggestions for cell ${cellIndex}.`,
+      null,
+      statusKey
     );
     this.updateNotebookInfo();
 
@@ -1666,7 +1701,9 @@ class AIAssistantPanel extends Widget {
     const savedSuggestions = this.suggestions.get(selectedCell.cellId) ?? [];
     this.pendingSuggestionCellID = '';
     this.setAssistantStatus(
-      `Generated ${savedSuggestions.length} suggestions for cell ${cellIndex}.`
+      `Generated ${savedSuggestions.length} suggestions for cell ${cellIndex}.`,
+      null,
+      statusKey
     );
     this.saveCacheToNotebook();
     this.updateNotebookInfo();
@@ -1876,12 +1913,17 @@ class AIAssistantPanel extends Widget {
     cell: ICellDescriptor,
     suggestion: ISuggestion
   ): Promise<void> {
+    const statusKey = this.getNotebookStatusKey();
     const suggestionKey = this.createSuggestionKey(
       cell.cellId,
       this.getSuggestionIdentity(suggestion)
     );
     this.pendingSuggestionCellID = cell.cellId;
-    this.setAssistantStatus('Generating content for selected suggestion.', 0.25);
+    this.setAssistantStatus(
+      'Generating content for selected suggestion.',
+      0.25,
+      statusKey
+    );
     this.updateNotebookInfo();
 
     const context = this.buildNotebookContext(cell.cellIndex);
@@ -1900,7 +1942,11 @@ class AIAssistantPanel extends Widget {
     };
 
     this.generatedSuggestions.set(suggestionKey, generatedSuggestion);
-    this.setAssistantStatus('Inserting generated cell into notebook.', 0.5);
+    this.setAssistantStatus(
+      'Inserting generated cell into notebook.',
+      0.5,
+      statusKey
+    );
     const generatedCell = await this.createOrUpdateGeneratedCell(
       cell,
       generatedSuggestion
@@ -1908,7 +1954,7 @@ class AIAssistantPanel extends Widget {
     this.pendingSuggestionCellID = '';
 
     if (generatedCell) {
-      this.setAssistantStatus('Summarizing generated cell.', 0.75);
+      this.setAssistantStatus('Summarizing generated cell.', 0.75, statusKey);
       this.updateNotebookInfo();
 
       try {
@@ -1918,17 +1964,23 @@ class AIAssistantPanel extends Widget {
         );
         const summaryData = this.normalizeSummaryResponse(summaryResponse);
         this.summaries.set(generatedCell.cellId, summaryData);
-        this.setAssistantStatus('Selected suggestion inserted successfully.', 1);
+        this.setAssistantStatus(
+          'Selected suggestion inserted successfully.',
+          1,
+          statusKey
+        );
       } catch (error) {
         console.error('Failed to summarize generated cell:', error);
         this.setAssistantStatus(
-          'Selected suggestion inserted. Summary update failed.'
+          'Selected suggestion inserted. Summary update failed.',
+          null,
+          statusKey
         );
       }
 
       this.saveCacheToNotebook();
     } else {
-      this.setAssistantStatus(response.message);
+      this.setAssistantStatus(response.message, null, statusKey);
     }
 
     this.updateNotebookInfo();
