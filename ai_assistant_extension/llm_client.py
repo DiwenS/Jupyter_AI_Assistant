@@ -36,6 +36,131 @@ class LLMResponseError(LLMError):
     """当 LLM 响应无效时引发。"""
     pass
 
+
+def classify_llm_error(error: Exception, config: Optional[Dict] = None) -> Dict:
+    """
+    Convert backend LLM exceptions into a frontend-friendly error object.
+
+    The frontend can use this object to show user-facing dialogs.
+    """
+    config = config or {}
+
+    message = str(error)
+    lowered = message.lower()
+
+    provider = config.get("provider", "")
+    model = config.get("model", "")
+
+    error_code = "LLM_ERROR"
+    error_type = "llm"
+    retriable = False
+
+    # 1) API key 缺失
+    if "missing api key" in lowered:
+        error_code = "MISSING_API_KEY"
+        error_type = "auth"
+        retriable = False
+
+    # 2) API key 格式有问题，例如中文占位符导致 latin-1 编码报错
+    elif "latin-1" in lowered or "codec can't encode" in lowered:
+        error_code = "INVALID_API_KEY_FORMAT"
+        error_type = "auth"
+        retriable = False
+
+    # 3) API key 无效 / 认证失败
+    elif (
+        "invalid api key" in lowered
+        or "incorrect api key" in lowered
+        or "unauthorized" in lowered
+        or "authentication error" in lowered
+        or "status 401" in lowered
+        or "401" in lowered
+        or "invalid x-api-key" in lowered
+        or "permission denied" in lowered
+    ):
+        error_code = "INVALID_API_KEY"
+        error_type = "auth"
+        retriable = False
+
+    # 4) provider 不支持
+    elif "unsupported provider" in lowered or "supported providers" in lowered:
+        error_code = "UNSUPPORTED_PROVIDER"
+        error_type = "config"
+        retriable = False
+
+    # 5) model 缺失 / model 名字错误 / model 不存在
+    elif (
+        "missing model" in lowered
+        or "model not found" in lowered
+        or "does not exist" in lowered
+        or "unknown model" in lowered
+        or "invalid model" in lowered
+        or ("model" in lowered and "not found" in lowered)
+    ):
+        error_code = "MODEL_NOT_FOUND"
+        error_type = "config"
+        retriable = False
+
+    # 6) max_tokens / max_completion_tokens 参数不兼容
+    elif (
+        "max_completion_tokens" in lowered
+        or ("max_tokens" in lowered and "unsupported" in lowered)
+        or "unsupported parameter" in lowered
+        or "unknown parameter" in lowered
+    ):
+        error_code = "TOKEN_PARAMETER_MISMATCH"
+        error_type = "config"
+        retriable = False
+
+    # 7) 限流
+    elif "rate limit" in lowered or "status 429" in lowered or "429" in lowered or "too many requests" in lowered:
+        error_code = "RATE_LIMIT"
+        error_type = "rate_limit"
+        retriable = True
+
+    # 8) 超时
+    elif "timed out" in lowered or "timeout" in lowered:
+        error_code = "TIMEOUT"
+        error_type = "network"
+        retriable = True
+
+    # 9) 网络连接失败
+    elif (
+        "could not connect" in lowered
+        or "connection error" in lowered
+        or "failed to establish a new connection" in lowered
+        or "connection refused" in lowered
+        or "name or service not known" in lowered
+    ):
+        error_code = "CONNECTION_ERROR"
+        error_type = "network"
+        retriable = True
+
+    # 10) 根据异常类型兜底分类
+    elif isinstance(error, LLMConnectionError):
+        error_code = "CONNECTION_ERROR"
+        error_type = "network"
+        retriable = True
+
+    elif isinstance(error, LLMResponseError):
+        error_code = "LLM_RESPONSE_ERROR"
+        error_type = "provider_response"
+        retriable = False
+
+    elif isinstance(error, LLMError):
+        error_code = "LLM_ERROR"
+        error_type = "llm"
+        retriable = False
+
+    return {
+        "code": error_code,
+        "type": error_type,
+        "message": message,
+        "provider": provider,
+        "model": model,
+        "retriable": retriable,
+    }
+
 # =========================
 # Environment Configuration
 # =========================
@@ -566,6 +691,41 @@ def generate(
     )
 
 
+def test_llm_connection() -> Dict:
+    """
+    Test the currently configured LLM with a tiny prompt.
+
+    This is intended for frontend model settings validation.
+    It should be cheap and fast, and it should raise the same LLM exceptions
+    as normal generation when the configuration is invalid.
+    """
+    config = _get_internal_llm_config()
+
+    test_messages = [
+        {
+            "role": "system",
+            "content": "You are a connection test assistant. Reply with only OK.",
+        },
+        {
+            "role": "user",
+            "content": "Reply with OK.",
+        },
+    ]
+
+    response = generate(
+        test_messages,
+        temperature=0,
+        max_tokens=16,
+    )
+
+    if not isinstance(response, str) or not response.strip():
+        raise LLMResponseError("LLM test returned empty response.")
+
+    return {
+        "provider": config.get("provider", ""),
+        "model": config.get("model", ""),
+        "responsePreview": response.strip()[:80],
+    }
 # =========================
 # Simple Test
 # =========================
