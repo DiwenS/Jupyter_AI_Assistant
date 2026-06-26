@@ -7,6 +7,14 @@ from ai_assistant_extension.prompts import build_summary_prompt, build_suggestio
 # def suggest_next_cell(cellIndex):
 #     return [f'FAKE suggestion1 for cell {cellIndex}', 'FAKE suggestion2', 'FAKE suggestion3']
 
+def _fallback_suggestions(message: str):
+    return [
+        {
+            "suggestion": message,
+            "cellType": "markdown",
+        }
+    ]
+
 def suggest_next_cell(selected_cell_source, previous_context, next_context):
     print("============= AI suggesting =============")
     print("== suggestion input ==")
@@ -35,7 +43,8 @@ def suggest_next_cell(selected_cell_source, previous_context, next_context):
 
     if not response:
         print("[ERROR] Empty response from AI model.")
-        return ["No AI suggestions generated"]
+        return _fallback_suggestions("No AI suggestions generated")
+        #return ["No AI suggestions generated"]
 
     # if isinstance(response, str):
     #     response = json.loads(response)
@@ -53,18 +62,20 @@ def suggest_next_cell(selected_cell_source, previous_context, next_context):
             response = json.loads(response)
     except json.JSONDecodeError as e:
         print(f"[ERROR] Failed to parse AI response as JSON: {e}")
-        return ["No AI suggestions generated"]
+        return _fallback_suggestions("No AI suggestions generated")
+        #return ["No AI suggestions generated"]
 
 
     if not isinstance(response, dict):
         print("[ERROR] Response is not a dictionary")
-        return ["Invalid AI response format"]
+        return _fallback_suggestions("Invalid AI response format")
+        #return ["Invalid AI response format"]
 
     suggestions = response.get("suggestions")
 
     if not isinstance(suggestions, list):
         print("[ERROR] suggestions field is not a list")
-        return ["Invalid suggestions format"]
+        return _fallback_suggestions("Invalid suggestions format")
 
     # return response.get("suggestions", ["No AI suggestions generated"])
     return suggestions

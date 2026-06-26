@@ -8,7 +8,12 @@ from .sug_content import next_cell_content
 from .summarizer import summarize_cell
 from .suggester import suggest_next_cell
 from .error_fixer import fix_code_error
-from .llm_client import get_llm_config, update_llm_config
+from .llm_client import (
+    get_llm_config,
+    update_llm_config,
+    test_llm_connection,
+    classify_llm_error,
+)
 
 
 class HelloRouteHandler(APIHandler):
@@ -52,6 +57,26 @@ class SummarizeCellHandler(APIHandler):
             "message": message,
         }))
 """
+def _finish_llm_error(handler, status_code, message, error=None):
+    """
+    Send a frontend-friendly LLM error response.
+
+    Frontend can use:
+    - message: user-facing popup text
+    - error.code: stable machine-readable error code
+    - error.type: rough category
+    - error.retriable: whether retry may help
+    """
+    payload = {
+        "status": "error",
+        "message": message,
+    }
+
+    if error is not None:
+        payload["error"] = error
+
+    handler.set_status(status_code)
+    handler.finish(json.dumps(payload))
 
 class LLMConfigHandler(APIHandler):
     @tornado.web.authenticated
@@ -92,6 +117,37 @@ class LLMConfigHandler(APIHandler):
             "message": "LLM configuration updated."
         }))
 
+class LLMTestHandler(APIHandler):
+    @tornado.web.authenticated
+    def post(self):
+        """
+        Test the current LLM configuration.
+
+        Frontend can call this after saving model settings to decide whether
+        to show a success message or an error dialog.
+        """
+        try:
+            result = test_llm_connection()
+        except Exception as e:
+            current_config = get_llm_config()
+            error_info = classify_llm_error(e, current_config)
+
+            _finish_llm_error(
+                self,
+                400,
+                f"LLM configuration test failed: {str(e)}",
+                error_info,
+            )
+            return
+
+        self.finish(json.dumps({
+            "status": "success",
+            "message": "LLM connection test succeeded.",
+            "provider": result.get("provider", ""),
+            "model": result.get("model", ""),
+            "responsePreview": result.get("responsePreview", ""),
+        }))
+
 # 生成summary
 class SummarizeCellHandler(APIHandler):
     @tornado.web.authenticated
@@ -112,11 +168,13 @@ class SummarizeCellHandler(APIHandler):
         try:
             summary = summarize_cell(cell_source)
         except Exception as e:
-            self.set_status(500)
-            self.finish(json.dumps({
-                "status": "error",
-                "message": f"Failed to summarize cell: {str(e)}"
-            }))
+            error_info = classify_llm_error(e, get_llm_config())
+            _finish_llm_error(
+                self,
+                500,
+                f"Failed to summarize cell: {str(e)}",
+                error_info,
+            )
             return
 
         self.finish(json.dumps({
@@ -173,15 +231,36 @@ class SuggestNextStepsHandler(APIHandler):
         if not cell_source:
             cell_source = data.get("cell_source", "")
 
-        raw_suggestions = suggest_next_cell(cell_source, previous_cells, next_cells)
+        try:
+            raw_suggestions = suggest_next_cell(
+                cell_source,
+                previous_cells,
+                next_cells,
+            )
+        except Exception as e:
+            error_info = classify_llm_error(e, get_llm_config())
+            _finish_llm_error(
+                self,
+                500,
+                f"Failed to generate next-step suggestions: {str(e)}",
+                error_info,
+            )
+            return
 
         suggestions = []
         for index, suggestion in enumerate(raw_suggestions):
+            if isinstance(suggestion, dict):
+                title = suggestion.get("suggestion", "")
+                cell_type = suggestion.get("cellType", "code")
+            else:
+                title = str(suggestion)
+                cell_type = "markdown"
+
             suggestions.append({
                 "id": f"suggestion-{index + 1}",
-                "title": suggestion.get("suggestion", ""),
-                "description": suggestion.get("cellType", "code"),
-                "cellType": suggestion.get("cellType", "code"),
+                "title": title,
+                "description": cell_type,
+                "cellType": cell_type,
                 "content": "# TODO: generate cell content here",
                 "metadata": {
                     "source": "llm"
@@ -266,11 +345,13 @@ class SelectSuggestionHandler(APIHandler):
                 next_context=next_cells,
             )
         except Exception as e:
-            self.set_status(500)
-            self.finish(json.dumps({
-                "status": "error",
-                "message": f"Failed to generate content for selected suggestion: {str(e)}"
-            }))
+            error_info = classify_llm_error(e, get_llm_config())
+            _finish_llm_error(
+                self,
+                500,
+                f"Failed to generate content for selected suggestion: {str(e)}",
+                error_info,
+            )
             return
 
         suggestion = {
@@ -356,11 +437,13 @@ class FixCodeErrorHandler(APIHandler):
                 next_context=next_cells,
             )
         except Exception as e:
-            self.set_status(500)
-            self.finish(json.dumps({
-                "status": "error",
-                "message": f"Failed to fix code error: {str(e)}"
-            }))
+            error_info = classify_llm_error(e, get_llm_config())
+            _finish_llm_error(
+                self,
+                500,
+                f"Failed to fix code error: {str(e)}",
+                error_info,
+            )
             return
 
         self.finish(json.dumps({
@@ -392,6 +475,9 @@ def setup_route_handlers(web_app):
     llm_config_route_pattern = url_path_join(
         base_url, "ai-assistant-extension", "llm-config"
     )
+    llm_test_route_pattern = url_path_join(
+        base_url, "ai-assistant-extension", "llm-test"
+    )
     suggest_route_pattern = url_path_join(
         base_url, "ai-assistant-extension", "suggest-next-steps"
     )
@@ -407,6 +493,7 @@ def setup_route_handlers(web_app):
         (hello_route_pattern, HelloRouteHandler),
         (health_route_pattern, HealthHandler),
         (llm_config_route_pattern, LLMConfigHandler),
+        (llm_test_route_pattern, LLMTestHandler),
         (summarize_route_pattern, SummarizeCellHandler),
         (suggest_route_pattern, SuggestNextStepsHandler),
         (select_suggestion_route_pattern, SelectSuggestionHandler),
