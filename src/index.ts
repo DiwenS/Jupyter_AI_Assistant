@@ -13,6 +13,7 @@ import {
   ICellDescriptor,
   ICellSummaryData,
   ICellSummaryResponse,
+  IContextSuggestion,
   ILLMConfig,
   INextStepContext,
   ISuggestion,
@@ -353,9 +354,8 @@ class AIAssistantPanel extends Widget {
         />
       </label>
 
-      ${
-        needsApiKey
-          ? `
+      ${needsApiKey
+        ? `
       <label class="jp-ai-assistant-llm-field">
         <span>API Key</span>
         <input
@@ -366,7 +366,7 @@ class AIAssistantPanel extends Widget {
           autocomplete="off"
         />
       </label>`
-          : ''
+        : ''
       }
 
       <div class="jp-ai-assistant-llm-row">
@@ -738,8 +738,8 @@ class AIAssistantPanel extends Widget {
       const aiMetaLabel = isGenerated ? ' · AI' : '';
       const nodeMetaMarkup = trimmedTitle
         ? `<span class="jp-ai-assistant-tree-node-meta">#${cellIndex} · ${this.escapeHtml(
-            cellTypeLabel
-          )}${aiMetaLabel}</span>`
+          cellTypeLabel
+        )}${aiMetaLabel}</span>`
         : '';
       const compactAiMarkup =
         isGenerated && !trimmedTitle
@@ -761,15 +761,15 @@ class AIAssistantPanel extends Widget {
       const fixedSummaryMarkup =
         this.summaryDisplayMode === 'fixed'
           ? `<div class="jp-ai-assistant-tree-node-summary-fixed">${this.escapeHtml(
-              summary
-            )}</div>`
+            summary
+          )}</div>`
           : '';
       // Hover 模式：summary 作为 tooltip，鼠标悬浮或键盘 focus 时显示。
       const hoverSummaryMarkup =
         this.summaryDisplayMode === 'hover'
           ? `<div class="jp-ai-assistant-tree-node-tooltip">${this.escapeHtml(
-              summary
-            )}</div>`
+            summary
+          )}</div>`
           : '';
 
       return `
@@ -784,8 +784,8 @@ class AIAssistantPanel extends Widget {
             title="Jump to cell ${cellIndex}"
           >
             <span class="jp-ai-assistant-tree-node-label">${this.escapeHtml(
-              nodeLabel
-            )}</span>
+        nodeLabel
+      )}</span>
             ${nodeMetaMarkup}
             ${compactAiMarkup}
             ${hoverSummaryMarkup}
@@ -914,13 +914,13 @@ class AIAssistantPanel extends Widget {
       childNodes.push(`
         <div class="jp-ai-assistant-tree-family">
           ${renderTreeNode(
-            childCellId,
-            generatedCellIndex,
-            generatedCell.type,
-            title,
-            summary,
-            this.isGeneratedCellId(childCellId)
-          )}
+        childCellId,
+        generatedCellIndex,
+        generatedCell.type,
+        title,
+        summary,
+        this.isGeneratedCellId(childCellId)
+      )}
           ${nestedChildNodes}
         </div>
       `);
@@ -1323,13 +1323,18 @@ class AIAssistantPanel extends Widget {
   private buildNotebookContext(cellIndex: number): INextStepContext {
     const cells = this.getCurrentCells();
     const tree = this.buildContextTree(cells);
+    const selectedCell = cells[cellIndex];
+    const currentCellSuggestions = selectedCell
+      ? this.getContextSuggestionsForCell(selectedCell.cellId)
+      : [];
     // 限制前后cell的最大传输数量
     return {
       //previousCells: cellsWithSummaries.slice(0, cellIndex),
       previousCells: cells.slice(Math.max(0, cellIndex - 5), cellIndex),
       //nextCells: cellsWithSummaries.slice(cellIndex + 1),
       nextCells: cells.slice(cellIndex + 1, cellIndex + 4),
-      tree
+      tree,
+      currentCellSuggestions
     };
   }
 
@@ -1390,7 +1395,7 @@ class AIAssistantPanel extends Widget {
     const manualParentRawCellId = metadata.ai_assistant_tree_parent_cell_id;
     const generatedSource =
       typeof metadata.ai_assistant_generated_source === 'object' &&
-      metadata.ai_assistant_generated_source !== null
+        metadata.ai_assistant_generated_source !== null
         ? (metadata.ai_assistant_generated_source as Record<string, unknown>)
         : {};
     const generatedParentRawCellId =
@@ -1578,7 +1583,7 @@ class AIAssistantPanel extends Widget {
         : cellType;
     const generatedObject =
       typeof suggestionObject.generated === 'object' &&
-      suggestionObject.generated !== null
+        suggestionObject.generated !== null
         ? (suggestionObject.generated as Record<string, unknown>)
         : {};
     const generatedStatus = generatedObject.status === 'yes' ? 'yes' : 'no';
@@ -1600,12 +1605,12 @@ class AIAssistantPanel extends Widget {
       generated:
         generatedStatus === 'yes' && generatedCellId
           ? {
-              status: generatedStatus,
-              cell_id: generatedCellId
-            }
+            status: generatedStatus,
+            cell_id: generatedCellId
+          }
           : {
-              status: 'no'
-            },
+            status: 'no'
+          },
       metadata: normalizedMetadata
     };
 
@@ -1629,6 +1634,16 @@ class AIAssistantPanel extends Widget {
         generated: suggestion.generated ?? { status: 'no' }
       })
     );
+  }
+
+  private getContextSuggestionsForCell(cellId: string): IContextSuggestion[] {
+    return (
+      this.suggestions.get(cellId) ?? this.getCellSuggestions(cellId)
+    ).map(suggestion => ({
+      title: suggestion.title,
+      cellType: suggestion.cellType,
+      generated: suggestion.generated ?? { status: 'no' }
+    }));
   }
 
   private getCellSuggestions(cellId: string): ISuggestion[] {
@@ -1748,12 +1763,12 @@ class AIAssistantPanel extends Widget {
         ...suggestion,
         generated: generatedCellId
           ? {
-              status: 'yes' as const,
-              cell_id: this.getRawCellId(generatedCellId)
-            }
+            status: 'yes' as const,
+            cell_id: this.getRawCellId(generatedCellId)
+          }
           : {
-              status: 'no' as const
-            }
+            status: 'no' as const
+          }
       };
     });
 
@@ -2374,7 +2389,7 @@ class AIAssistantPanel extends Widget {
 
       const generatedSource =
         typeof metadata.ai_assistant_generated_source === 'object' &&
-        metadata.ai_assistant_generated_source !== null
+          metadata.ai_assistant_generated_source !== null
           ? (metadata.ai_assistant_generated_source as Record<string, unknown>)
           : {};
       const parentRawCellId =

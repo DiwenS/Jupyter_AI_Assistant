@@ -52,11 +52,21 @@ export interface ISuggestion {
   };
 }
 
+export interface IContextSuggestion {
+  title: string;
+  cellType: string;
+  generated: {
+    status: 'yes' | 'no';
+    cell_id?: string;
+  };
+}
+
 //请求后端生成建议时，前端传给后端的上下文cell信息&Tree信息
 export interface INextStepContext {
   previousCells: ICellDescriptor[];
   nextCells: ICellDescriptor[];
   tree: ITreeNode[];
+  currentCellSuggestions: IContextSuggestion[];
 }
 
 //后端生成当前cell的建议后，返回给前端的完整suggestions
