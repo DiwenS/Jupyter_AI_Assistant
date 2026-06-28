@@ -22,6 +22,7 @@ def summarize_cell(selected_cell_source):
     response = generate(message)
     print("[LOG-sum] Raw AI response:")
     print(response)
+    print("============= AI summarizing ✅ =============")
 
     if not response:
         print("[ERROR] Empty response from AI model.")

@@ -15,21 +15,21 @@ def _fallback_suggestions(message: str):
         }
     ]
 
-def suggest_next_cell(selected_cell_source, previous_context, next_context):
-    print("============= AI suggesting =============")
-    print("== suggestion input ==")
-    print("⬇️ Selected Cell Source ⬇️")
-    print(selected_cell_source)
-    print("⬇️ Previous Context ⬇️")
-    print(previous_context)
-    print("⬇️ Next Context ⬇️")
-    print(next_context)
-    print("=" * 45)
+def suggest_next_cell(selected_cell_source, previous_context, next_context, generated_sug_titles):
+    # print("============= AI suggesting =============")
+    # print("== suggestion input ==")
+    # print("⬇️ Selected Cell Source ⬇️")
+    # print(selected_cell_source)
+    # print("⬇️ Previous Context ⬇️")
+    # print(previous_context)
+    # print("⬇️ Next Context ⬇️")
+    # print(next_context)
+    # print("=" * 45)
 
     USE_OLLAMA = True
 
     if USE_OLLAMA:
-        message = build_suggestions_prompt(selected_cell_source, previous_context, next_context)
+        message = build_suggestions_prompt(selected_cell_source, previous_context, next_context, generated_sug_titles)
         response = generate(message)
     else:
         response = {

@@ -23,7 +23,7 @@ def next_cell_content(
     print(selected_sug_title)
     print("⬇️ Selected Suggestion Description ⬇️")
     print(selected_sug_desc)
-    print("=" * 45)
+    print("============= AI generating next cell content ✅ =============")
 
     message = build_content_generation_prompt(
         selected_sug_title=selected_sug_title,
