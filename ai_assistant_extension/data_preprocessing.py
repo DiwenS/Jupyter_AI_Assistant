@@ -4,25 +4,7 @@ from typing import Any, List, Dict
 def _format_tree_outline(tree: list[dict[str, Any]]) -> str:
     """
     Convert the notebook tree into a concise outline suitable for LLM prompts.
-
-    Only keeps information useful for reasoning:
-        - title
-        - summary
-        - cellType
-        - hierarchy
-
-    Example:
-
-    Notebook Outline
-
-    - Import Libraries [code]
-      Summary: Imports pandas, numpy, scipy.
-
-        - Load CSV Dataset [code]
-          Summary: Reads a CSV file.
-
-            - Data Verification [markdown]
-              Summary: Checks missing values.
+    Adds a warning if any node is missing a title ("Untitled").
     """
 
     if not tree:
@@ -30,10 +12,18 @@ def _format_tree_outline(tree: list[dict[str, Any]]) -> str:
 
     lines = ["Notebook Outline"]
 
+    has_untitled = False
+
     def dfs(node: dict[str, Any], depth: int = 0) -> None:
+        nonlocal has_untitled
         indent = "  " * depth
 
-        title = node.get("title") or "(Untitled)"
+        title = node.get("title")
+
+        if not title:
+            title = "(Untitled)"
+            has_untitled = True
+
         summary = node.get("summary", "").strip()
         cell_type = node.get("cellType", "unknown")
 
@@ -54,6 +44,14 @@ def _format_tree_outline(tree: list[dict[str, Any]]) -> str:
 
     for node in root_nodes:
         dfs(node)
+
+    if has_untitled:
+        lines.append("")
+        lines.append(
+            "⚠ WARNING: Some notebook cells are missing titles (Untitled). "
+            "Please generate summaries/titles for better suggestion quality."
+        )
+    # TODO: 前端加入错误提示
 
     return "\n".join(lines)
 

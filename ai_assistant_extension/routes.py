@@ -249,15 +249,6 @@ class SuggestNextStepsHandler(APIHandler):
 
         current_cell_index = selected_cell.get("cellIndex", "")
 
-        future_summaries = collect_future_summaries_by_index(context["tree"], current_cell_index)
-        print("[INFO] future summaries:")
-        print(future_summaries)
-        print("======== ✅ ========")
-        """
-        [INFO] future summaries:
-        ['Documents the process of loading a CSV dataset into a pandas DataFrame and verifying its contents.']
-        """
-
         previous_summaries = collect_previous_summaries_by_index(context["tree"], current_cell_index)
         print("[INFO] previous summaries:")
         print(previous_summaries)
@@ -267,6 +258,14 @@ class SuggestNextStepsHandler(APIHandler):
         ['This cell reads a CSV file into a pandas DataFrame using the pd.read_csv function.']
         """
 
+        future_summaries = collect_future_summaries_by_index(context["tree"], current_cell_index)
+        print("[INFO] future summaries:")
+        print(future_summaries)
+        print("======== ✅ ========")
+        """
+        [INFO] future summaries:
+        ['Documents the process of loading a CSV dataset into a pandas DataFrame and verifying its contents.']
+        """
 
         notbook_outline = _format_tree_outline(context["tree"])
         print("[INFO] Notebook outline:")
