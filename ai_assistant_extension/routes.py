@@ -214,8 +214,8 @@ class SuggestNextStepsHandler(APIHandler):
     @tornado.web.authenticated
     def post(self):
         data = self.get_json_body() or {}
-        print("[INFO] Frontend data")
-        print(data)
+        # print("[INFO] Frontend data")
+        # print(data)
 
         selected_cell = data.get("selectedCell", {})
         context = data.get("context", {})
@@ -240,8 +240,9 @@ class SuggestNextStepsHandler(APIHandler):
             if data["generated"]["status"] == "yes"
         ]
 
-        print("[INFO] titles:")
+        print("[INFO] generated suggestions titles:")
         print(generated_sug_titles)
+        print("======== ✅ ========")
 
         try:
             raw_suggestions = suggest_next_cell(
