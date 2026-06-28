@@ -83,21 +83,21 @@ SELECTED CELL:
 
 def build_suggestions_prompt(
         selected_cell: str,
-        previous_context: Dict,
-        next_context: Dict,
-        generated_sug_title: List[str] = None,
+        previous_summaries: List[str] = None,
+        future_summaries: List[str] = None,
+        generated_sug_titles: List[str] = None,
 ) -> List[Dict[str, str]]:
     """
     Build prompt for next-cell suggestions.
     """
 
-    previous_context_text = _format_context(previous_context)
-    next_context_text = _format_context(next_context)
-    print("============= Building Suggestions Prompt =============")
-    print(previous_context_text)
-    print("=" * 45)
-    print(next_context_text)
-    print("=" * 45)
+    # previous_context_text = _format_context(previous_context)
+    # next_context_text = _format_context(next_context)
+    # print("============= Building Suggestions Prompt =============")
+    # print(previous_context_text)
+    # print("=" * 45)
+    # print(next_context_text)
+    # print("=" * 45)
 
     system_prompt = """
 You are an expert data science and Jupyter notebook assistant.
@@ -106,10 +106,10 @@ Your task is to suggest the next reasonable actions
 or notebook steps for the CURRENT SELECTED CELL.
 
 You are given:
-- Previous notebook context:
-  cells that appear before the selected cell.
-- Next notebook context:
-  cells that appear after the selected cell.
+- Previous cell summaries (what has been done)
+- Future cell summaries (what comes next in notebook structure)
+- The current selected cell
+- previously already generated suggestions
 
 For each suggestion generate:
 - suggestion:
@@ -150,16 +150,16 @@ Expected format:
 
     user_prompt = f"""
 PREVIOUS CONTEXT:
-{previous_context_text}
+{previous_summaries}
 
 CURRENT SELECTED CELL:
 {selected_cell}
 
 NEXT CONTEXT:
-{next_context_text}
+{future_summaries}
 
 PREVIOUSLY GENERATED SUGGESTIONS:
-{generated_sug_title}
+{generated_sug_titles}
 """
 
     return [

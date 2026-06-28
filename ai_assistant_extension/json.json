@@ -83,3 +83,142 @@
     [{'id': 'notebooks/small_ancova_process.ipynb:d979f569', 'cellIndex': 0, 'cellType': 'code', 'isGenerated': False, 'parentId': 'ROOT', 'children': []}, {'id': 'notebooks/small_ancova_process.ipynb:59e0c368', 'cellIndex': 1, 'cellType': 'markdown', 'isGenerated': False, 'parentId': 'ROOT', 'children': []}]
   }
 }
+
+
+
+
+
+
+{
+  "selectedCell": {
+    "cellId": "notebooks/small_ancova_process.ipynb:d979f569",
+    "cellIndex": 0,
+    "cellType": "code",
+    "source": "import pandas as pd\nimport numpy as np\nfrom scipy import stats\nfrom scipy.stats import shapiro, levene\nimport statsmodels.formula.api as smf\nimport statsmodels.api as sm\nimport matplotlib.pyplot as plt\nimport seaborn as sns\nimport warnings\nimport os"
+  },
+  "context": {
+    "previousCells": [],
+    "nextCells": [
+      {
+        "cellId": "notebooks/small_ancova_process.ipynb:5bf1d897-1470-4d36-b9fa-1036ebae8fa3",
+        "cellIndex": 1,
+        "cellType": "code",
+        "source": "data = pd.read_csv('path/to/your/dataset.csv')",
+        "title": "Load CSV Dataset",
+        "summary": "This cell reads a CSV file into a pandas DataFrame using the pd.read_csv function."
+      },
+      {
+        "cellId": "notebooks/small_ancova_process.ipynb:90bb7a17-f0ac-46bf-aa8c-979088aa04c3",
+        "cellIndex": 2,
+        "cellType": "markdown",
+        "source": "## Data Verification Process\n\nIn this section, we will document the process of verifying the data after loading it into a pandas DataFrame.\n\n### Step 1: Check the Shape of the DataFrame\n\nIt's important to know the dimensions of the dataset (number of rows and columns):\n\n```python\ndata.shape\n```\n\n### Step 2: Display Basic Information\n\nUse the `info()` method to get a concise summary of the DataFrame, including the data types and non-null counts:\n\n```python\ndata.info()\n```\n\n### Step 3: Check for Missing Values\n\nIdentify any missing values in the dataset:\n\n```python\ndata.isnull().sum()\n```\n\n### Step 4: Display Summary Statistics\n\nUse the `describe()` method to view summary statistics for numerical columns:\n\n```python\ndata.describe()\n```\n\n### Summary\n\nThis verification process ensures that the dataset is correctly loaded and ready for analysis, helping to identify any potential issues before proceeding.",
+        "title": "Data Verification Steps",
+        "summary": "Documents the process of verifying a pandas DataFrame, including shape, info, missing values, and summary statistics."
+      },
+      {
+        "cellId": "notebooks/small_ancova_process.ipynb:6e23ca46-39ee-491f-bb18-cee10a3d01f7",
+        "cellIndex": 3,
+        "cellType": "markdown",
+        "source": "## Data Loading Process\n\nIn this section, we will document the process of loading our dataset into a pandas DataFrame.\n\n### Step 1: Import Necessary Libraries\n\nBefore loading the data, ensure that you have imported the required libraries:\n\n```python\nimport pandas as pd\n```\n\n### Step 2: Load the Dataset\n\nWe will use the `pd.read_csv` function to read the CSV file into a DataFrame. Replace `'path/to/your/dataset.csv'` with the actual path to your dataset.\n\n```python\ndata = pd.read_csv('path/to/your/dataset.csv')\n```\n\n### Step 3: Verify the Data\n\nAfter loading the data, it's important to verify that it has been loaded correctly. You can do this by checking the first few rows of the DataFrame:\n\n```python\ndata.head()\n```\n\n### Summary\n\nThis process allows us to load and inspect our dataset, preparing it for further analysis.",
+        "title": "Dataset Loading and Verification",
+        "summary": "Documents the process of loading a CSV dataset into a pandas DataFrame and verifying its contents."
+      }
+    ],
+    "tree": [
+      {
+        "id": "notebooks/small_ancova_process.ipynb:d979f569",
+        "cellIndex": 0,
+        "cellType": "code",
+        "isGenerated": false,
+        "parentId": "ROOT",
+        "children": [
+          {
+            "id": "notebooks/small_ancova_process.ipynb:5bf1d897-1470-4d36-b9fa-1036ebae8fa3",
+            "cellIndex": 1,
+            "cellType": "code",
+            "title": "Load CSV Dataset",
+            "summary": "This cell reads a CSV file into a pandas DataFrame using the pd.read_csv function.",
+            "isGenerated": true,
+            "parentId": "notebooks/small_ancova_process.ipynb:d979f569",
+            "children": [
+              {
+                "id": "notebooks/small_ancova_process.ipynb:90bb7a17-f0ac-46bf-aa8c-979088aa04c3",
+                "cellIndex": 2,
+                "cellType": "markdown",
+                "title": "Data Verification Steps",
+                "summary": "Documents the process of verifying a pandas DataFrame, including shape, info, missing values, and summary statistics.",
+                "isGenerated": true,
+                "parentId": "notebooks/small_ancova_process.ipynb:5bf1d897-1470-4d36-b9fa-1036ebae8fa3",
+                "children": []
+              }
+            ]
+          },
+          {
+            "id": "notebooks/small_ancova_process.ipynb:6e23ca46-39ee-491f-bb18-cee10a3d01f7",
+            "cellIndex": 3,
+            "cellType": "markdown",
+            "title": "Dataset Loading and Verification",
+            "summary": "Documents the process of loading a CSV dataset into a pandas DataFrame and verifying its contents.",
+            "isGenerated": true,
+            "parentId": "notebooks/small_ancova_process.ipynb:d979f569",
+            "children": []
+          }
+        ]
+      },
+      {
+        "id": "notebooks/small_ancova_process.ipynb:59e0c368",
+        "cellIndex": 4,
+        "cellType": "markdown",
+        "isGenerated": false,
+        "parentId": "ROOT",
+        "children": []
+      }
+    ],
+    "currentCellSuggestions": [
+      {
+        "title": "Load the dataset using pandas",
+        "cellType": "code",
+        "generated": {
+          "status": "yes",
+          "cell_id": "5bf1d897-1470-4d36-b9fa-1036ebae8fa3"
+        }
+      },
+      {
+        "title": "Document the data loading process",
+        "cellType": "markdown",
+        "generated": {
+          "status": "yes",
+          "cell_id": "6e23ca46-39ee-491f-bb18-cee10a3d01f7"
+        }
+      },
+      {
+        "title": "Verify the loaded data by displaying the first few rows",
+        "cellType": "code",
+        "generated": {
+          "status": "no"
+        }
+      },
+      {
+        "title": "Check the data types and summary statistics of the dataset",
+        "cellType": "code",
+        "generated": {
+          "status": "no"
+        }
+      },
+      {
+        "title": "Create a markdown cell to outline the next steps in data analysis",
+        "cellType": "markdown",
+        "generated": {
+          "status": "no"
+        }
+      },
+      {
+        "title": "Visualize the distribution of key variables in the dataset",
+        "cellType": "code",
+        "generated": {
+          "status": "no"
+        }
+      }
+    ]
+  }
+}

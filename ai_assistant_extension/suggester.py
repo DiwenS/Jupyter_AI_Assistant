@@ -15,7 +15,7 @@ def _fallback_suggestions(message: str):
         }
     ]
 
-def suggest_next_cell(selected_cell_source, previous_context, next_context, generated_sug_titles):
+def suggest_next_cell(selected_cell_source, previous_summaries, future_summaries, generated_sug_titles):
     # print("============= AI suggesting =============")
     # print("== suggestion input ==")
     # print("⬇️ Selected Cell Source ⬇️")
@@ -29,7 +29,7 @@ def suggest_next_cell(selected_cell_source, previous_context, next_context, gene
     USE_OLLAMA = True
 
     if USE_OLLAMA:
-        message = build_suggestions_prompt(selected_cell_source, previous_context, next_context, generated_sug_titles)
+        message = build_suggestions_prompt(selected_cell_source, previous_summaries, future_summaries, generated_sug_titles)
         response = generate(message)
     else:
         response = {
