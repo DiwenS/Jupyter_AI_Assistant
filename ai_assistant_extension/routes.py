@@ -214,6 +214,8 @@ class SuggestNextStepsHandler(APIHandler):
     @tornado.web.authenticated
     def post(self):
         data = self.get_json_body() or {}
+        # print("[INFO] Frontend data")
+        # print(data)
 
         selected_cell = data.get("selectedCell", {})
         context = data.get("context", {})
@@ -231,11 +233,23 @@ class SuggestNextStepsHandler(APIHandler):
         if not cell_source:
             cell_source = data.get("cell_source", "")
 
+        # 保存已经生成过的suggestions，避免重复生成
+        generated_sug_titles = [
+            data["title"]
+            for data in data["context"]["currentCellSuggestions"]
+            if data["generated"]["status"] == "yes"
+        ]
+
+        print("[INFO] generated suggestions titles:")
+        print(generated_sug_titles)
+        print("======== ✅ ========")
+
         try:
             raw_suggestions = suggest_next_cell(
                 cell_source,
                 previous_cells,
                 next_cells,
+                generated_sug_titles,
             )
         except Exception as e:
             error_info = classify_llm_error(e, get_llm_config())

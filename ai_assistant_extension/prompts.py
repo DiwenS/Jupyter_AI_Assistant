@@ -85,6 +85,7 @@ def build_suggestions_prompt(
         selected_cell: str,
         previous_context: Dict,
         next_context: Dict,
+        generated_sug_title: List[str] = None,
 ) -> List[Dict[str, str]]:
     """
     Build prompt for next-cell suggestions.
@@ -124,6 +125,8 @@ Rules:
 - The "suggestion" field should briefly describe what to do next.
 - Do not include content generation yet.
 - Do not include explanations outside JSON.
+- Do NOT generate suggestions that are semantically equivalent to any previously generated suggestion.
+- If a similar suggestion already exists, generate a different reasonable next step instead.
 
 Do not think step by step.
 Provide only the final JSON output.
@@ -154,6 +157,9 @@ CURRENT SELECTED CELL:
 
 NEXT CONTEXT:
 {next_context_text}
+
+PREVIOUSLY GENERATED SUGGESTIONS:
+{generated_sug_title}
 """
 
     return [
@@ -202,6 +208,18 @@ Requirements:
 - Do not include markdown code fences.
 - Do not include explanations outside the generated cell content.
 - Return ONLY the cell content.
+
+For markdown cells:
+- Produce well-structured, notebook-friendly Markdown.
+- Use clear heading hierarchy (e.g., ## for section titles, ### for subsections) and avoid skipping heading levels.
+- Separate paragraphs, lists, and code examples with blank lines for readability.
+- Use bullet or numbered lists where appropriate instead of long paragraphs.
+- Use Markdown tables only when they improve clarity.
+- Wrap inline code, variable names, function names, and file names in backticks.
+- Use fenced code blocks with an appropriate language identifier for code examples.
+- Use LaTeX syntax (`$...$` or `$$...$$`) for mathematical expressions when appropriate.
+- Ensure the Markdown is syntactically valid and renders cleanly in Jupyter Notebook.
+- Write Markdown as educational notebook content rather than as an article. Prefer concise explanations, clear transitions, and direct relevance to the surrounding notebook context.
 """
 
     user_prompt = f"""
