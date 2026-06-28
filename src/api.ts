@@ -73,6 +73,7 @@ export interface INextStepContext {
 export interface INextStepSuggestionsResponse {
   status: 'success' | 'error';
   suggestions: ISuggestion[];
+  warnings?: string[];
   metadata: {
     source: string;
     contextReceived: boolean;

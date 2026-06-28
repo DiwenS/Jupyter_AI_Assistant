@@ -15,7 +15,12 @@ from .llm_client import (
     classify_llm_error,
 )
 
-from .data_preprocessing import _format_tree_outline, collect_future_summaries_by_index, collect_previous_summaries_by_index
+from .data_preprocessing import (
+    _format_tree_outline,
+    collect_future_summaries_by_index,
+    collect_previous_summaries_by_index,
+    collect_tree_warnings,
+)
 
 
 class HelloRouteHandler(APIHandler):
@@ -268,8 +273,12 @@ class SuggestNextStepsHandler(APIHandler):
         """
 
         notbook_outline = _format_tree_outline(context["tree"])
+        warnings = collect_tree_warnings(context["tree"])
         print("[INFO] Notebook outline:")
         print(notbook_outline)
+        if warnings:
+            print("[WARN] Notebook preprocessing warnings:")
+            print(warnings)
         print("======== ✅ ========")
         """
         [INFO] Notebook outline:
@@ -324,6 +333,7 @@ class SuggestNextStepsHandler(APIHandler):
         self.finish(json.dumps({
             "status": "success",
             "suggestions": suggestions,
+            "warnings": warnings,
             "metadata": {
                 "source": "llm",
                 "contextReceived": bool(context)
@@ -555,6 +565,5 @@ def setup_route_handlers(web_app):
     ]
 
     web_app.add_handlers(host_pattern, handlers)
-
 
 

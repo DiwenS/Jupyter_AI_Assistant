@@ -1,6 +1,36 @@
 from typing import Any, List, Dict
 
 
+def collect_tree_warnings(tree: list[dict[str, Any]]) -> list[str]:
+    """
+    Collect non-blocking warnings for notebook tree quality.
+    """
+    if not tree:
+        return []
+
+    has_untitled = False
+
+    def dfs(node: dict[str, Any]) -> None:
+        nonlocal has_untitled
+
+        if not node.get("title"):
+            has_untitled = True
+
+        for child in node.get("children", []):
+            dfs(child)
+
+    for node in tree:
+        dfs(node)
+
+    if has_untitled:
+        return [
+            "Some notebook cells are missing titles (Untitled). "
+            "Please generate summaries/titles for better suggestion quality."
+        ]
+
+    return []
+
+
 def _format_tree_outline(tree: list[dict[str, Any]]) -> str:
     """
     Convert the notebook tree into a concise outline suitable for LLM prompts.

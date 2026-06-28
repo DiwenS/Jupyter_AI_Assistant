@@ -1988,8 +1988,11 @@ class AIAssistantPanel extends Widget {
     const savedSuggestions = this.suggestions.get(selectedCell.cellId) ?? [];
     this.setCellSuggestions(selectedCell.cellId, savedSuggestions);
     this.pendingSuggestionCellID = '';
+    const warningMessage = response.warnings?.length
+      ? ` Warning: ${response.warnings.join(' ')}`
+      : '';
     this.setAssistantStatus(
-      `Generated ${savedSuggestions.length} suggestions for cell ${cellIndex}.`,
+      `Generated ${savedSuggestions.length} suggestions for cell ${cellIndex}.${warningMessage}`,
       null,
       statusKey
     );
