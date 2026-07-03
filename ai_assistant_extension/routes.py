@@ -225,13 +225,52 @@ class SuggestNextStepsHandler(APIHandler):
         print(data)
         print("=========== ✅ ===========")
 
-        selected_cell = data.get("selectedCell", {})
-        context = data.get("context", {})
-        previous_cells = context.get("previousCells", [])
-        next_cells = context.get("nextCells", [])
+        selected_cell = data.get("selectedCell") or {}
+        context = data.get("context") or {}
 
-        previous_sources = [cell.get("source", "") for cell in previous_cells]
-        next_sources = [cell.get("source", "") for cell in next_cells]
+        if not isinstance(selected_cell, dict):
+            _finish_llm_error(
+                self,
+                400,
+                "Invalid request: selectedCell must be an object.",
+            )
+            return
+
+        if not isinstance(context, dict):
+            _finish_llm_error(
+                self,
+                400,
+                "Invalid request: context must be an object.",
+            )
+            return
+
+        previous_cells = context.get("previousCells") or []
+        next_cells = context.get("nextCells") or []
+        tree = context.get("tree") or []
+        current_cell_suggestions = context.get("currentCellSuggestions") or []
+
+        if not isinstance(previous_cells, list):
+            previous_cells = []
+
+        if not isinstance(next_cells, list):
+            next_cells = []
+
+        if not isinstance(tree, list):
+            tree = []
+
+        if not isinstance(current_cell_suggestions, list):
+            current_cell_suggestions = []
+
+        previous_sources = [
+            cell.get("source", "")
+            for cell in previous_cells
+            if isinstance(cell, dict)
+        ]
+        next_sources = [
+            cell.get("source", "")
+            for cell in next_cells
+            if isinstance(cell, dict)
+        ]
         all_sources = previous_sources + next_sources
 
         # Preferred frontend structure.
@@ -243,9 +282,14 @@ class SuggestNextStepsHandler(APIHandler):
 
         # 保存已经生成过的suggestions，避免重复生成
         generated_sug_titles = [
-            data["title"]
-            for data in data["context"]["currentCellSuggestions"]
-            if data["generated"]["status"] == "yes"
+            suggestion.get("title", "")
+            for suggestion in current_cell_suggestions
+            if (
+                isinstance(suggestion, dict)
+                and isinstance(suggestion.get("generated"), dict)
+                and suggestion["generated"].get("status") == "yes"
+                and suggestion.get("title")
+            )
         ]
 
         print("[INFO] generated suggestions titles:")
@@ -254,7 +298,7 @@ class SuggestNextStepsHandler(APIHandler):
 
         current_cell_index = selected_cell.get("cellIndex", "")
 
-        previous_summaries = collect_previous_summaries_by_index(context["tree"], current_cell_index)
+        previous_summaries = collect_previous_summaries_by_index(tree, current_cell_index)
         print("[INFO] previous summaries:")
         print(previous_summaries)
         print("======== ✅ ========")
@@ -263,7 +307,7 @@ class SuggestNextStepsHandler(APIHandler):
         ['This cell reads a CSV file into a pandas DataFrame using the pd.read_csv function.']
         """
 
-        future_summaries = collect_future_summaries_by_index(context["tree"], current_cell_index)
+        future_summaries = collect_future_summaries_by_index(tree, current_cell_index)
         print("[INFO] future summaries:")
         print(future_summaries)
         print("======== ✅ ========")
@@ -272,8 +316,8 @@ class SuggestNextStepsHandler(APIHandler):
         ['Documents the process of loading a CSV dataset into a pandas DataFrame and verifying its contents.']
         """
 
-        notbook_outline = _format_tree_outline(context["tree"])
-        warnings = collect_tree_warnings(context["tree"])
+        notbook_outline = _format_tree_outline(tree)
+        warnings = collect_tree_warnings(tree)
         print("[INFO] Notebook outline:")
         print(notbook_outline)
         if warnings:
@@ -565,5 +609,4 @@ def setup_route_handlers(web_app):
     ]
 
     web_app.add_handlers(host_pattern, handlers)
-
 

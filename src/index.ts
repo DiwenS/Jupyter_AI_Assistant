@@ -704,7 +704,6 @@ class AIAssistantPanel extends Widget {
         cacheStatus.textContent = 'No cache yet.';
       }
     }
-    // 无意义注释
 
     const notebookName = current.context.path;
     const cellCount = model.cells.length;
@@ -1966,38 +1965,48 @@ class AIAssistantPanel extends Widget {
     );
     this.updateNotebookInfo();
 
-    const context = this.buildNotebookContext(cellIndex);
-    const response = await suggestNextSteps(
-      this.serverSettings,
-      selectedCell,
-      context
-    );
+    try {
+      const context = this.buildNotebookContext(cellIndex);
+      const response = await suggestNextSteps(
+        this.serverSettings,
+        selectedCell,
+        context
+      );
 
-    // 重新请求 AI Next 时，只保留仍有关联 generated cell 的旧 suggestions。
-    this.pruneMissingGeneratedCells();
-    const retainedGeneratedSuggestions = this.getGeneratedSuggestionsForCell(
-      selectedCell.cellId
-    );
-    const nextSuggestions = response.suggestions.map((suggestion, index) =>
-      this.withClientSuggestionKey(selectedCell.cellId, suggestion, index)
-    );
-    this.suggestions.set(selectedCell.cellId, [
-      ...retainedGeneratedSuggestions,
-      ...nextSuggestions
-    ]);
-    const savedSuggestions = this.suggestions.get(selectedCell.cellId) ?? [];
-    this.setCellSuggestions(selectedCell.cellId, savedSuggestions);
-    this.pendingSuggestionCellID = '';
-    const warningMessage = response.warnings?.length
-      ? ` Warning: ${response.warnings.join(' ')}`
-      : '';
-    this.setAssistantStatus(
-      `Generated ${savedSuggestions.length} suggestions for cell ${cellIndex}.${warningMessage}`,
-      null,
-      statusKey
-    );
-    await this.saveCacheToNotebook();
-    this.updateNotebookInfo();
+      // 重新请求 AI Next 时，只保留仍有关联 generated cell 的旧 suggestions。
+      this.pruneMissingGeneratedCells();
+      const retainedGeneratedSuggestions = this.getGeneratedSuggestionsForCell(
+        selectedCell.cellId
+      );
+      const nextSuggestions = response.suggestions.map((suggestion, index) =>
+        this.withClientSuggestionKey(selectedCell.cellId, suggestion, index)
+      );
+      this.suggestions.set(selectedCell.cellId, [
+        ...retainedGeneratedSuggestions,
+        ...nextSuggestions
+      ]);
+      const savedSuggestions = this.suggestions.get(selectedCell.cellId) ?? [];
+      this.setCellSuggestions(selectedCell.cellId, savedSuggestions);
+      const warningMessage = response.warnings?.length
+        ? ` Warning: ${response.warnings.join(' ')}`
+        : '';
+      this.setAssistantStatus(
+        `Generated ${savedSuggestions.length} suggestions for cell ${cellIndex}.${warningMessage}`,
+        null,
+        statusKey
+      );
+      await this.saveCacheToNotebook();
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Failed to generate next-step suggestions.';
+      console.error('[AI Assistant] Failed to generate suggestions:', error);
+      this.setAssistantStatus(message, null, statusKey);
+    } finally {
+      this.pendingSuggestionCellID = '';
+      this.updateNotebookInfo();
+    }
   }
   //显示具体的suggestions
   private syncCellSuggestions(): void {
