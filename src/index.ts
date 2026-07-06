@@ -351,8 +351,8 @@ class AIAssistantPanel extends Widget {
     // ollama 走本地服务，一般不需要 apiKey；openai-compatible / anthropic 需要。
     const needsApiKey = provider !== 'ollama';
     const apiKeyPlaceholder = config.apiKeyConfigured
-      ? '已配置（留空则不修改）'
-      : '未配置';
+      ? 'Configured (leave blank to keep unchanged)'
+      : 'Not configured';
 
     const baseUrlPlaceholder = this.providerDefaultBaseUrl(provider);
     const modelPlaceholder = this.providerDefaultModelHint(provider);
@@ -383,9 +383,8 @@ class AIAssistantPanel extends Widget {
         />
       </label>
 
-      ${
-        needsApiKey
-          ? `
+      ${needsApiKey
+        ? `
       <label class="jp-ai-assistant-llm-field">
         <span>API Key</span>
         <input
@@ -396,7 +395,7 @@ class AIAssistantPanel extends Widget {
           autocomplete="off"
         />
       </label>`
-          : ''
+        : ''
       }
 
       <div class="jp-ai-assistant-llm-actions">
@@ -780,8 +779,8 @@ class AIAssistantPanel extends Widget {
       const aiMetaLabel = isGenerated ? ' · AI' : '';
       const nodeMetaMarkup = trimmedTitle
         ? `<span class="jp-ai-assistant-tree-node-meta">#${cellIndex} · ${this.escapeHtml(
-            cellTypeLabel
-          )}${aiMetaLabel}</span>`
+          cellTypeLabel
+        )}${aiMetaLabel}</span>`
         : '';
       const compactAiMarkup =
         isGenerated && !trimmedTitle
@@ -801,14 +800,14 @@ class AIAssistantPanel extends Widget {
       const fixedSummaryMarkup =
         this.summaryDisplayMode === 'fixed'
           ? `<div class="jp-ai-assistant-tree-node-summary-fixed">${this.escapeHtml(
-              summary
-            )}</div>`
+            summary
+          )}</div>`
           : '';
       const hoverSummaryMarkup =
         this.summaryDisplayMode === 'hover'
           ? `<div class="jp-ai-assistant-tree-node-tooltip">${this.escapeHtml(
-              summary
-            )}</div>`
+            summary
+          )}</div>`
           : '';
 
       return `
@@ -823,8 +822,8 @@ class AIAssistantPanel extends Widget {
             title="Jump to cell ${cellIndex}"
           >
             <span class="jp-ai-assistant-tree-node-label">${this.escapeHtml(
-              nodeLabel
-            )}</span>
+        nodeLabel
+      )}</span>
             ${nodeMetaMarkup}
             ${compactAiMarkup}
             ${hoverSummaryMarkup}
@@ -1000,8 +999,8 @@ class AIAssistantPanel extends Widget {
       <div class="jp-ai-assistant-tree-toolbar">
         <button type="button" data-tree-zoom="out" title="Zoom out tree">-</button>
         <span class="jp-ai-assistant-tree-zoom-value">${Math.round(
-          this.treeZoom * 100
-        )}%</span>
+      this.treeZoom * 100
+    )}%</span>
         <button type="button" data-tree-zoom="in" title="Zoom in tree">+</button>
       </div>
       <div class="jp-ai-assistant-tree-legend">
@@ -1181,13 +1180,13 @@ class AIAssistantPanel extends Widget {
       childNodes.push(`
         <div class="jp-ai-assistant-tree-family">
           ${renderTreeNode(
-            childCellId,
-            generatedCellIndex,
-            generatedCell.type,
-            title,
-            summary,
-            this.isGeneratedCellId(childCellId)
-          )}
+        childCellId,
+        generatedCellIndex,
+        generatedCell.type,
+        title,
+        summary,
+        this.isGeneratedCellId(childCellId)
+      )}
           ${nestedChildNodes}
         </div>
       `);
@@ -1713,7 +1712,7 @@ class AIAssistantPanel extends Widget {
     const manualParentRawCellId = metadata.ai_assistant_tree_parent_cell_id;
     const generatedSource =
       typeof metadata.ai_assistant_generated_source === 'object' &&
-      metadata.ai_assistant_generated_source !== null
+        metadata.ai_assistant_generated_source !== null
         ? (metadata.ai_assistant_generated_source as Record<string, unknown>)
         : {};
     const generatedParentRawCellId =
@@ -1906,7 +1905,7 @@ class AIAssistantPanel extends Widget {
         : cellType;
     const generatedObject =
       typeof suggestionObject.generated === 'object' &&
-      suggestionObject.generated !== null
+        suggestionObject.generated !== null
         ? (suggestionObject.generated as Record<string, unknown>)
         : {};
     const generatedStatus = generatedObject.status === 'yes' ? 'yes' : 'no';
@@ -1928,12 +1927,12 @@ class AIAssistantPanel extends Widget {
       generated:
         generatedStatus === 'yes' && generatedCellId
           ? {
-              status: generatedStatus,
-              cell_id: generatedCellId
-            }
+            status: generatedStatus,
+            cell_id: generatedCellId
+          }
           : {
-              status: 'no'
-            },
+            status: 'no'
+          },
       metadata: normalizedMetadata
     };
 
@@ -2086,12 +2085,12 @@ class AIAssistantPanel extends Widget {
         ...suggestion,
         generated: generatedCellId
           ? {
-              status: 'yes' as const,
-              cell_id: this.getRawCellId(generatedCellId)
-            }
+            status: 'yes' as const,
+            cell_id: this.getRawCellId(generatedCellId)
+          }
           : {
-              status: 'no' as const
-            }
+            status: 'no' as const
+          }
       };
     });
 
@@ -2788,7 +2787,7 @@ class AIAssistantPanel extends Widget {
 
       const generatedSource =
         typeof metadata.ai_assistant_generated_source === 'object' &&
-        metadata.ai_assistant_generated_source !== null
+          metadata.ai_assistant_generated_source !== null
           ? (metadata.ai_assistant_generated_source as Record<string, unknown>)
           : {};
       const parentRawCellId =
