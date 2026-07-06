@@ -34,6 +34,7 @@ type GeneratedCellType = 'code' | 'markdown' | 'raw';
 const ROOT_TREE_PARENT_ID = 'ROOT';
 const CELL_SUMMARY_METADATA_KEY = 'ai_assistant_summary';
 const CELL_SUGGESTIONS_METADATA_KEY = 'ai_assistant_suggestions';
+const CELL_TREE_COLLAPSED_METADATA_KEY = 'ai_assistant_tree_collapsed';
 interface IAssistantStatus {
   message: string;
   progress: number | null;
@@ -746,6 +747,13 @@ class AIAssistantPanel extends Widget {
     const notebookName = panel.context.path;
     const cellCount = model.cells.length;
     const activeCellIndex = notebook.activeCellIndex;
+    const activeCellId =
+      activeCellIndex >= 0 && activeCellIndex < cellCount
+        ? `${panel.context.path}:${model.cells.get(activeCellIndex).id}`
+        : '';
+    const visibleActiveCellId = activeCellId
+      ? this.getVisibleTreeTargetCellId(panel, activeCellId)
+      : '';
     const treeNodes: string[] = [];
     const childCellIdSet = this.getTreeChildCellIds(panel);
     const renderTreeNode = (
@@ -754,7 +762,9 @@ class AIAssistantPanel extends Widget {
       cellType: string,
       title: string,
       summary: string,
-      isGenerated: boolean
+      isGenerated: boolean,
+      hasChildren: boolean,
+      isCollapsed: boolean
     ): string => {
       const normalizedCellType = cellType.toLowerCase();
       const trimmedTitle = title.trim();
@@ -774,12 +784,21 @@ class AIAssistantPanel extends Widget {
         isGenerated && !trimmedTitle
           ? '<span class="jp-ai-assistant-tree-node-compact-ai">AI</span>'
           : '';
-      const activeClass =
-        cellIndex === activeCellIndex
-          ? ' jp-ai-assistant-tree-node-active'
-          : '';
+      const isDirectActive =
+        cellId === activeCellId && cellId === visibleActiveCellId;
+      const containsActiveHiddenCell =
+        cellId === visibleActiveCellId && cellId !== activeCellId;
+      const activeClass = isDirectActive
+        ? ' jp-ai-assistant-tree-node-active'
+        : '';
+      const activeDescendantClass = containsActiveHiddenCell
+        ? ' jp-ai-assistant-tree-node-active-descendant'
+        : '';
       const generatedClass = isGenerated
         ? ' jp-ai-assistant-tree-node-generated'
+        : '';
+      const collapsedClass = isCollapsed
+        ? ' jp-ai-assistant-tree-node-collapsed'
         : '';
       const nodeShapeClass =
         normalizedCellType === 'code'
@@ -797,9 +816,23 @@ class AIAssistantPanel extends Widget {
               summary
             )}</div>`
           : '';
+      const collapseToggleMarkup = hasChildren
+        ? `
+            <span
+              class="jp-ai-assistant-tree-collapse-toggle"
+              role="button"
+              tabindex="0"
+              data-tree-collapse-toggle="true"
+              data-cell-id="${this.escapeHtml(cellId)}"
+              aria-label="${isCollapsed ? 'Expand children' : 'Hide children'}"
+              aria-expanded="${isCollapsed ? 'false' : 'true'}"
+              title="${isCollapsed ? 'Expand children' : 'Hide children'}"
+            ></span>
+          `
+        : '';
 
       return `
-        <div class="jp-ai-assistant-tree-node${activeClass}${generatedClass}">
+        <div class="jp-ai-assistant-tree-node${activeClass}${activeDescendantClass}${generatedClass}${collapsedClass}">
           <div
             class="jp-ai-assistant-tree-node-button${nodeShapeClass}${titleLabelClass}"
             role="button"
@@ -816,6 +849,7 @@ class AIAssistantPanel extends Widget {
             ${nodeMetaMarkup}
             ${compactAiMarkup}
             ${hoverSummaryMarkup}
+            ${collapseToggleMarkup}
           </div>
           ${fixedSummaryMarkup}
         </div>
@@ -834,15 +868,15 @@ class AIAssistantPanel extends Widget {
       const summaryData = this.getSummaryData(cellId, panel);
       const title = summaryData?.title || '';
       const summary = summaryData?.summary || 'No summary generated yet.';
-      const childNodes = this.renderChildTreeNodes(
-        panel,
-        cellId,
-        renderTreeNode
-      );
+      const hasChildren = this.hasTreeChildren(panel, cellId);
+      const isCollapsed = this.isTreeNodeCollapsed(cellId, panel);
+      const childNodes = isCollapsed
+        ? ''
+        : this.renderChildTreeNodes(panel, cellId, renderTreeNode);
 
       treeNodes.push(`
         <div class="jp-ai-assistant-tree-family">
-          ${renderTreeNode(cellId, i, cellType, title, summary, this.isGeneratedCellId(cellId, panel))}
+          ${renderTreeNode(cellId, i, cellType, title, summary, this.isGeneratedCellId(cellId, panel), hasChildren, isCollapsed)}
           ${childNodes}
         </div>
       `);
@@ -872,7 +906,10 @@ class AIAssistantPanel extends Widget {
       )
       .forEach(button => {
         button.onclick = event => {
-          if (this.isTreeInlineEditorEventTarget(event.target)) {
+          if (
+            this.isTreeInlineEditorEventTarget(event.target) ||
+            this.isTreeNodeCollapseToggleEventTarget(event.target)
+          ) {
             return;
           }
 
@@ -884,7 +921,10 @@ class AIAssistantPanel extends Widget {
         };
 
         button.onkeydown = event => {
-          if (this.isTreeInlineEditorEventTarget(event.target)) {
+          if (
+            this.isTreeInlineEditorEventTarget(event.target) ||
+            this.isTreeNodeCollapseToggleEventTarget(event.target)
+          ) {
             return;
           }
 
@@ -902,6 +942,36 @@ class AIAssistantPanel extends Widget {
 
         button.oncontextmenu = event => {
           this.showTreeNodeContextMenu(event, button, panel);
+        };
+      });
+
+    notebookTree
+      .querySelectorAll<HTMLElement>('[data-tree-collapse-toggle]')
+      .forEach(toggle => {
+        toggle.onclick = event => {
+          event.preventDefault();
+          event.stopPropagation();
+
+          const cellId = toggle.dataset.cellId;
+
+          if (cellId) {
+            void this.toggleTreeNodeCollapsed(panel, cellId);
+          }
+        };
+
+        toggle.onkeydown = event => {
+          if (event.key !== 'Enter' && event.key !== ' ') {
+            return;
+          }
+
+          event.preventDefault();
+          event.stopPropagation();
+
+          const cellId = toggle.dataset.cellId;
+
+          if (cellId) {
+            void this.toggleTreeNodeCollapsed(panel, cellId);
+          }
         };
       });
     this.attachTreeDragHandlers(notebookTree, panel);
@@ -954,6 +1024,13 @@ class AIAssistantPanel extends Widget {
     addMenuButton('Refresh summary', () => {
       void this.refreshTreeNodeSummary(panel, cellIndex, cellId);
     });
+
+    if (this.hasTreeChildren(panel, cellId)) {
+      const isCollapsed = this.isTreeNodeCollapsed(cellId, panel);
+      addMenuButton(isCollapsed ? 'Expand children' : 'Hide children', () => {
+        void this.toggleTreeNodeCollapsed(panel, cellId, !isCollapsed);
+      });
+    }
 
     ownerDocument.body.appendChild(menu);
     const menuRect = menu.getBoundingClientRect();
@@ -1156,6 +1233,67 @@ class AIAssistantPanel extends Widget {
 
     const element = target as Element;
     return Boolean(element.closest('.jp-ai-assistant-tree-inline-editor'));
+  }
+
+  private isTreeNodeCollapseToggleEventTarget(
+    target: EventTarget | null
+  ): boolean {
+    if (!target || !('closest' in target)) {
+      return false;
+    }
+
+    const element = target as Element;
+    return Boolean(element.closest('[data-tree-collapse-toggle]'));
+  }
+
+  private isTreeNodeCollapsed(
+    cellId: string,
+    panel = this.notebookTracker.currentWidget
+  ): boolean {
+    const model = panel?.content.model;
+
+    if (!panel || !model) {
+      return false;
+    }
+
+    const cellIndex = this.findCellIndexByCellId(panel, cellId);
+
+    if (cellIndex < 0) {
+      return false;
+    }
+
+    const metadata = model.cells.get(cellIndex).sharedModel.getMetadata();
+    return metadata[CELL_TREE_COLLAPSED_METADATA_KEY] === true;
+  }
+
+  private async toggleTreeNodeCollapsed(
+    panel: NotebookPanel,
+    cellId: string,
+    collapsed = !this.isTreeNodeCollapsed(cellId, panel)
+  ): Promise<void> {
+    const model = panel.content.model;
+
+    if (!model) {
+      return;
+    }
+
+    const cellIndex = this.findCellIndexByCellId(panel, cellId);
+
+    if (cellIndex < 0) {
+      return;
+    }
+
+    const cell = model.cells.get(cellIndex);
+
+    if (collapsed) {
+      cell.sharedModel.setMetadata(CELL_TREE_COLLAPSED_METADATA_KEY, true);
+    } else {
+      cell.sharedModel.deleteMetadata(CELL_TREE_COLLAPSED_METADATA_KEY);
+    }
+
+    await panel.context.save();
+    this.updateTreePopupForPanel(panel);
+    this.updateNotebookInfo();
   }
 
   private async refreshTreeNodeSummary(
@@ -1393,7 +1531,7 @@ class AIAssistantPanel extends Widget {
     this.updateTreeZoomControls();
     this.scrollTreeNodeIntoView(
       popupState.root,
-      panel.content.activeCellIndex,
+      this.getVisibleTreeTargetCellIndex(panel, panel.content.activeCellIndex),
       'auto'
     );
   }
@@ -1446,7 +1584,9 @@ class AIAssistantPanel extends Widget {
       cellType: string,
       title: string,
       summary: string,
-      isGenerated: boolean
+      isGenerated: boolean,
+      hasChildren: boolean,
+      isCollapsed: boolean
     ) => string,
     visitedCellIds = new Set<string>()
   ): string {
@@ -1478,12 +1618,16 @@ class AIAssistantPanel extends Widget {
       const summaryData = this.getSummaryData(childCellId, panel);
       const title = summaryData?.title || '';
       const summary = summaryData?.summary || 'No summary generated yet.';
-      const nestedChildNodes = this.renderChildTreeNodes(
-        panel,
-        childCellId,
-        renderTreeNode,
-        new Set(visitedCellIds)
-      );
+      const hasChildren = this.hasTreeChildren(panel, childCellId);
+      const isCollapsed = this.isTreeNodeCollapsed(childCellId, panel);
+      const nestedChildNodes = isCollapsed
+        ? ''
+        : this.renderChildTreeNodes(
+            panel,
+            childCellId,
+            renderTreeNode,
+            new Set(visitedCellIds)
+          );
 
       childNodes.push(`
         <div class="jp-ai-assistant-tree-family">
@@ -1493,7 +1637,9 @@ class AIAssistantPanel extends Widget {
             generatedCell.type,
             title,
             summary,
-            this.isGeneratedCellId(childCellId, panel)
+            this.isGeneratedCellId(childCellId, panel),
+            hasChildren,
+            isCollapsed
           )}
           ${nestedChildNodes}
         </div>
@@ -1509,6 +1655,25 @@ class AIAssistantPanel extends Widget {
         ${childNodes.join('')}
       </div>
     `;
+  }
+
+  private hasTreeChildren(panel: NotebookPanel, sourceCellId: string): boolean {
+    const model = panel.content.model;
+
+    if (!model) {
+      return false;
+    }
+
+    for (let index = 0; index < model.cells.length; index++) {
+      const childCell = model.cells.get(index);
+      const childCellId = `${panel.context.path}:${childCell.id}`;
+
+      if (this.getContextTreeParentId(childCellId, panel) === sourceCellId) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   // 收集所有有 parent 的 cell，渲染主干时避免重复显示。
@@ -1812,14 +1977,76 @@ class AIAssistantPanel extends Widget {
       return;
     }
 
-    this.scrollTreeNodeIntoView(this.node, activeCellIndex, 'smooth');
+    const visibleActiveCellIndex = this.getVisibleTreeTargetCellIndex(
+      current,
+      activeCellIndex
+    );
+
+    this.scrollTreeNodeIntoView(this.node, visibleActiveCellIndex, 'smooth');
 
     const popupState = this.treePopupStates.get(current.context.path);
 
     if (popupState && !popupState.window.closed) {
       this.updateTreePopupForPanel(current);
-      this.scrollTreeNodeIntoView(popupState.root, activeCellIndex, 'smooth');
+      this.scrollTreeNodeIntoView(
+        popupState.root,
+        visibleActiveCellIndex,
+        'smooth'
+      );
     }
+  }
+
+  private getVisibleTreeTargetCellIndex(
+    panel: NotebookPanel,
+    cellIndex: number
+  ): number {
+    const model = panel.content.model;
+
+    if (!model || cellIndex < 0 || cellIndex >= model.cells.length) {
+      return cellIndex;
+    }
+
+    const cell = model.cells.get(cellIndex);
+    const cellId = `${panel.context.path}:${cell.id}`;
+    const visibleCellId = this.getVisibleTreeTargetCellId(panel, cellId);
+
+    return this.findCellIndexByCellId(panel, visibleCellId);
+  }
+
+  private getVisibleTreeTargetCellId(
+    panel: NotebookPanel,
+    cellId: string
+  ): string {
+    const ancestorCellIds = this.getTreeAncestorCellIds(panel, cellId);
+
+    for (const ancestorCellId of ancestorCellIds) {
+      if (this.isTreeNodeCollapsed(ancestorCellId, panel)) {
+        return ancestorCellId;
+      }
+    }
+
+    return cellId;
+  }
+
+  private getTreeAncestorCellIds(
+    panel: NotebookPanel,
+    cellId: string
+  ): string[] {
+    const ancestorCellIds: string[] = [];
+    const visitedCellIds = new Set<string>([cellId]);
+    let parentId = this.getContextTreeParentId(cellId, panel);
+
+    while (
+      parentId !== ROOT_TREE_PARENT_ID &&
+      !visitedCellIds.has(parentId) &&
+      this.findCellIndexByCellId(panel, parentId) >= 0
+    ) {
+      ancestorCellIds.unshift(parentId);
+      visitedCellIds.add(parentId);
+      parentId = this.getContextTreeParentId(parentId, panel);
+    }
+
+    return ancestorCellIds;
   }
 
   private scrollTreeNodeIntoView(

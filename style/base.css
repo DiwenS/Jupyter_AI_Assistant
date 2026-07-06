@@ -260,6 +260,9 @@ Fixed 固定显示，Hover 悬浮显示。 */
 }
 
 .jp-ai-assistant-tree-browser-header h3 {
+  font-size: var(--jp-ui-font-size2);
+  font-weight: 600;
+  line-height: 1.3;
   margin: 0;
 }
 
@@ -506,6 +509,8 @@ Fixed 固定显示，Hover 悬浮显示。 */
 
 .jp-ai-assistant-tree-node-button.jp-ai-assistant-tree-node-title-label
   .jp-ai-assistant-tree-node-label {
+  font-size: var(--jp-ui-font-size1);
+  line-height: 1.15;
   overflow-wrap: anywhere;
   white-space: normal;
 }
@@ -537,10 +542,70 @@ Fixed 固定显示，Hover 悬浮显示。 */
   box-shadow: 0 0 0 3px var(--jp-brand-color2);
 }
 
+.jp-ai-assistant-tree-node-active-descendant .jp-ai-assistant-tree-node-button {
+  border-color: var(--jp-brand-color1);
+  box-shadow:
+    0 0 0 3px var(--jp-brand-color2),
+    inset 0 0 0 2px var(--jp-brand-color2);
+}
+
 .jp-ai-assistant-tree-node-button:hover,
 .jp-ai-assistant-tree-node-button:focus {
   border-color: var(--jp-brand-color1);
   outline: none;
+}
+
+.jp-ai-assistant-tree-collapse-toggle {
+  align-items: center;
+  background: var(--jp-layout-color1);
+  border: 1px solid var(--jp-border-color2);
+  border-radius: 999px;
+  bottom: -8px;
+  box-sizing: border-box;
+  cursor: pointer;
+  display: inline-flex;
+  height: 18px;
+  justify-content: center;
+  position: absolute;
+  right: -8px;
+  width: 18px;
+  z-index: 2;
+}
+
+.jp-ai-assistant-tree-collapse-toggle::before {
+  border-color: transparent transparent transparent var(--jp-ui-font-color2);
+  border-style: solid;
+  border-width: 4px 0 4px 6px;
+  content: '';
+  display: block;
+  transform: rotate(90deg);
+  transition: transform 120ms ease;
+}
+
+.jp-ai-assistant-tree-node-collapsed
+  .jp-ai-assistant-tree-collapse-toggle::before {
+  transform: rotate(0deg);
+}
+
+.jp-ai-assistant-tree-collapse-toggle:hover,
+.jp-ai-assistant-tree-collapse-toggle:focus {
+  border-color: var(--jp-brand-color1);
+  outline: none;
+}
+
+.jp-ai-assistant-tree-collapse-toggle:hover::before,
+.jp-ai-assistant-tree-collapse-toggle:focus::before {
+  border-left-color: var(--jp-brand-color1);
+}
+
+.jp-ai-assistant-tree-node-active-descendant
+  .jp-ai-assistant-tree-collapse-toggle {
+  border-color: var(--jp-brand-color1);
+}
+
+.jp-ai-assistant-tree-node-active-descendant
+  .jp-ai-assistant-tree-collapse-toggle::before {
+  border-left-color: var(--jp-brand-color1);
 }
 
 .jp-ai-assistant-tree-node-editing {
@@ -596,19 +661,30 @@ Fixed 固定显示，Hover 悬浮显示。 */
 }
 
 .jp-ai-assistant-tree-node-generated .jp-ai-assistant-tree-node-button {
-  background: var(--jp-layout-color2);
   border-color: var(--jp-brand-color2);
   border-style: dashed;
 }
 
+.jp-ai-assistant-tree-node-generated.jp-ai-assistant-tree-node-active
+  .jp-ai-assistant-tree-node-button,
+.jp-ai-assistant-tree-node-generated.jp-ai-assistant-tree-node-active-descendant
+  .jp-ai-assistant-tree-node-button {
+  border-color: var(--jp-brand-color1);
+  border-style: solid;
+}
+
 .jp-ai-assistant-tree-node-compact-ai {
-  color: var(--jp-brand-color1);
+  background: var(--jp-layout-color1);
+  border: 1px solid var(--jp-border-color2);
+  border-radius: 999px;
+  color: var(--jp-ui-font-color2);
   display: block;
   font-size: 9px;
   font-weight: 700;
   letter-spacing: 0;
   line-height: 1;
   margin-top: 2px;
+  padding: 1px 4px;
 }
 
 /* Fixed 模式下的 summary：固定显示在 node 右侧。 */
