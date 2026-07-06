@@ -165,10 +165,6 @@ class AIAssistantPanel extends Widget {
         </div>
         <hr />
 
-        <button id="refresh-notebook-info">
-          Refresh notebook info
-        </button>
-
         <button id="refresh-cell-summaries">
           Refresh summaries
         </button>
@@ -239,14 +235,6 @@ class AIAssistantPanel extends Widget {
 
       </div>
     `;
-
-    const refreshButton = this.node.querySelector(
-      '#refresh-notebook-info'
-    ) as HTMLButtonElement;
-
-    refreshButton.onclick = () => {
-      this.updateNotebookInfo();
-    };
 
     const summaryButton = this.node.querySelector(
       '#refresh-cell-summaries'
@@ -759,7 +747,6 @@ class AIAssistantPanel extends Widget {
     const cellCount = model.cells.length;
     const activeCellIndex = notebook.activeCellIndex;
     const treeNodes: string[] = [];
-    const generatedCellIdSet = new Set(this.generatedCellIds.values());
     const childCellIdSet = this.getTreeChildCellIds(panel);
     const renderTreeNode = (
       cellId: string,
@@ -813,9 +800,10 @@ class AIAssistantPanel extends Widget {
 
       return `
         <div class="jp-ai-assistant-tree-node${activeClass}${generatedClass}">
-          <button
+          <div
             class="jp-ai-assistant-tree-node-button${nodeShapeClass}${titleLabelClass}"
-            type="button"
+            role="button"
+            tabindex="0"
             data-cell-index="${cellIndex}"
             data-cell-id="${this.escapeHtml(cellId)}"
             data-cell-type="${this.escapeHtml(normalizedCellType)}"
@@ -828,7 +816,7 @@ class AIAssistantPanel extends Widget {
             ${nodeMetaMarkup}
             ${compactAiMarkup}
             ${hoverSummaryMarkup}
-          </button>
+          </div>
           ${fixedSummaryMarkup}
         </div>
       `;
@@ -854,7 +842,7 @@ class AIAssistantPanel extends Widget {
 
       treeNodes.push(`
         <div class="jp-ai-assistant-tree-family">
-          ${renderTreeNode(cellId, i, cellType, title, summary, generatedCellIdSet.has(cellId))}
+          ${renderTreeNode(cellId, i, cellType, title, summary, this.isGeneratedCellId(cellId, panel))}
           ${childNodes}
         </div>
       `);
@@ -879,19 +867,338 @@ class AIAssistantPanel extends Widget {
     `;
 
     notebookTree
-      .querySelectorAll<HTMLButtonElement>(
+      .querySelectorAll<HTMLElement>(
         '.jp-ai-assistant-tree-node-button[data-cell-index]'
       )
       .forEach(button => {
-        button.onclick = () => {
+        button.onclick = event => {
+          if (this.isTreeInlineEditorEventTarget(event.target)) {
+            return;
+          }
+
           const cellIndex = Number(button.dataset.cellIndex);
 
           if (Number.isInteger(cellIndex)) {
             void this.jumpToCell(cellIndex, panel);
           }
         };
+
+        button.onkeydown = event => {
+          if (this.isTreeInlineEditorEventTarget(event.target)) {
+            return;
+          }
+
+          if (event.key !== 'Enter' && event.key !== ' ') {
+            return;
+          }
+
+          event.preventDefault();
+          const cellIndex = Number(button.dataset.cellIndex);
+
+          if (Number.isInteger(cellIndex)) {
+            void this.jumpToCell(cellIndex, panel);
+          }
+        };
+
+        button.oncontextmenu = event => {
+          this.showTreeNodeContextMenu(event, button, panel);
+        };
       });
     this.attachTreeDragHandlers(notebookTree, panel);
+  }
+
+  private showTreeNodeContextMenu(
+    event: MouseEvent,
+    button: HTMLElement,
+    panel: NotebookPanel
+  ): void {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const cellIndex = Number(button.dataset.cellIndex);
+    const cellId = button.dataset.cellId;
+    const ownerDocument = button.ownerDocument;
+    const ownerWindow = ownerDocument.defaultView ?? window;
+
+    if (!Number.isInteger(cellIndex) || !cellId) {
+      return;
+    }
+
+    this.closeTreeContextMenus(ownerDocument);
+
+    const menu = ownerDocument.createElement('div');
+    menu.className = 'jp-ai-assistant-tree-context-menu';
+    menu.style.left = `${event.clientX}px`;
+    menu.style.top = `${event.clientY}px`;
+
+    const addMenuButton = (label: string, action: () => void) => {
+      const menuButton = ownerDocument.createElement('button');
+      menuButton.type = 'button';
+      menuButton.className = 'jp-ai-assistant-tree-context-menu-button';
+      menuButton.textContent = label;
+      menuButton.onclick = menuEvent => {
+        menuEvent.preventDefault();
+        menuEvent.stopPropagation();
+        this.closeTreeContextMenus(ownerDocument);
+        action();
+      };
+      menu.appendChild(menuButton);
+    };
+
+    addMenuButton('Edit title', () => {
+      this.startTreeNodeTitleEdit(panel, button, cellId);
+    });
+    addMenuButton('Edit summary', () => {
+      this.startTreeNodeSummaryEdit(panel, button, cellId);
+    });
+    addMenuButton('Refresh summary', () => {
+      void this.refreshTreeNodeSummary(panel, cellIndex, cellId);
+    });
+
+    ownerDocument.body.appendChild(menu);
+    const menuRect = menu.getBoundingClientRect();
+    const viewportWidth = ownerDocument.documentElement.clientWidth;
+    const viewportHeight = ownerDocument.documentElement.clientHeight;
+
+    if (menuRect.right > viewportWidth) {
+      menu.style.left = `${Math.max(8, viewportWidth - menuRect.width - 8)}px`;
+    }
+
+    if (menuRect.bottom > viewportHeight) {
+      menu.style.top = `${Math.max(8, viewportHeight - menuRect.height - 8)}px`;
+    }
+
+    const dismiss = () => {
+      this.closeTreeContextMenus(ownerDocument);
+      ownerDocument.removeEventListener('click', dismiss);
+      ownerDocument.removeEventListener('keydown', dismissOnEscape);
+    };
+    const dismissOnEscape = (keyboardEvent: KeyboardEvent) => {
+      if (keyboardEvent.key === 'Escape') {
+        dismiss();
+      }
+    };
+
+    ownerWindow.setTimeout(() => {
+      ownerDocument.addEventListener('click', dismiss);
+      ownerDocument.addEventListener('keydown', dismissOnEscape);
+    }, 0);
+  }
+
+  private closeTreeContextMenus(ownerDocument: Document): void {
+    ownerDocument
+      .querySelectorAll('.jp-ai-assistant-tree-context-menu')
+      .forEach(menu => menu.remove());
+  }
+
+  private startTreeNodeTitleEdit(
+    panel: NotebookPanel,
+    button: HTMLElement,
+    cellId: string
+  ): void {
+    const currentSummary = this.getSummaryData(cellId, panel) ?? {
+      title: '',
+      summary: ''
+    };
+    const label = button.querySelector<HTMLElement>(
+      '.jp-ai-assistant-tree-node-label'
+    );
+
+    if (!label) {
+      return;
+    }
+
+    button.classList.add('jp-ai-assistant-tree-node-editing');
+    button.draggable = false;
+    label.innerHTML = '';
+
+    const editor = button.ownerDocument.createElement('input');
+    editor.className =
+      'jp-ai-assistant-tree-inline-editor jp-ai-assistant-tree-inline-title-editor';
+    editor.type = 'text';
+    editor.value = currentSummary.title;
+    editor.placeholder = 'Title';
+    label.appendChild(editor);
+
+    this.bindTreeInlineEditor(editor, {
+      onCancel: () => {
+        this.updateTreePopupForPanel(panel);
+        this.updateNotebookInfo();
+      },
+      onCommit: value => {
+        void this.saveTreeNodeSummaryData(panel, cellId, {
+          ...currentSummary,
+          title: this.limitSummaryTitle(value)
+        });
+      }
+    });
+  }
+
+  private startTreeNodeSummaryEdit(
+    panel: NotebookPanel,
+    button: HTMLElement,
+    cellId: string
+  ): void {
+    const currentSummary = this.getSummaryData(cellId, panel) ?? {
+      title: '',
+      summary: ''
+    };
+    const node = button.closest<HTMLElement>('.jp-ai-assistant-tree-node');
+    const summaryTarget =
+      node?.querySelector<HTMLElement>(
+        '.jp-ai-assistant-tree-node-summary-fixed'
+      ) ??
+      button.querySelector<HTMLElement>('.jp-ai-assistant-tree-node-tooltip');
+
+    if (!node || !summaryTarget) {
+      return;
+    }
+
+    node.classList.add('jp-ai-assistant-tree-node-editing-summary');
+    summaryTarget.innerHTML = '';
+
+    const editor = button.ownerDocument.createElement('input');
+    editor.className =
+      'jp-ai-assistant-tree-inline-editor jp-ai-assistant-tree-inline-summary-editor';
+    editor.type = 'text';
+    editor.value = currentSummary.summary;
+    editor.placeholder = 'Summary';
+    summaryTarget.appendChild(editor);
+
+    this.bindTreeInlineEditor(editor, {
+      onCancel: () => {
+        this.updateTreePopupForPanel(panel);
+        this.updateNotebookInfo();
+      },
+      onCommit: value => {
+        void this.saveTreeNodeSummaryData(panel, cellId, {
+          ...currentSummary,
+          summary: this.normalizeInlineSummaryText(value)
+        });
+      }
+    });
+  }
+
+  private bindTreeInlineEditor(
+    editor: HTMLInputElement,
+    options: {
+      onCancel: () => void;
+      onCommit: (value: string) => void;
+    }
+  ): void {
+    let finished = false;
+    const finish = (commit: boolean) => {
+      if (finished) {
+        return;
+      }
+
+      finished = true;
+
+      if (commit) {
+        options.onCommit(editor.value);
+      } else {
+        options.onCancel();
+      }
+    };
+    const stopTreeInteraction = (event: Event) => {
+      event.stopPropagation();
+    };
+
+    editor.onclick = stopTreeInteraction;
+    editor.onmousedown = stopTreeInteraction;
+    editor.ondblclick = stopTreeInteraction;
+    editor.oncontextmenu = stopTreeInteraction;
+    editor.onkeydown = event => {
+      event.stopPropagation();
+
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        finish(false);
+        return;
+      }
+
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        finish(true);
+      }
+    };
+    editor.onblur = () => {
+      finish(true);
+    };
+
+    const editorWindow = editor.ownerDocument.defaultView ?? window;
+    editorWindow.setTimeout(() => {
+      editor.focus();
+      editor.select();
+    }, 0);
+  }
+
+  private normalizeInlineSummaryText(summary: string): string {
+    return summary.trim().replace(/\s+/g, ' ');
+  }
+
+  private async saveTreeNodeSummaryData(
+    panel: NotebookPanel,
+    cellId: string,
+    nextSummaryData: ICellSummaryData
+  ): Promise<void> {
+    this.setCellSummaryData(cellId, nextSummaryData, panel);
+    this.summaries.set(cellId, nextSummaryData);
+    await this.saveCacheToNotebook(panel);
+    this.updateTreePopupForPanel(panel);
+    this.updateNotebookInfo();
+  }
+
+  private isTreeInlineEditorEventTarget(target: EventTarget | null): boolean {
+    if (!target || !('closest' in target)) {
+      return false;
+    }
+
+    const element = target as Element;
+    return Boolean(element.closest('.jp-ai-assistant-tree-inline-editor'));
+  }
+
+  private async refreshTreeNodeSummary(
+    panel: NotebookPanel,
+    cellIndex: number,
+    cellId: string
+  ): Promise<void> {
+    const cell = this.getCellDescriptor(panel, cellIndex);
+
+    if (!cell) {
+      return;
+    }
+
+    const statusKey = this.getNotebookStatusKey(panel);
+    this.setAssistantStatus(
+      `Refreshing summary for cell ${cellIndex}.`,
+      0.5,
+      statusKey
+    );
+
+    try {
+      const response = await summarizeCell(this.serverSettings, cell);
+      const summaryData = this.normalizeSummaryResponse(response);
+      this.summaries.set(cellId, summaryData);
+      this.setCellSummaryData(cellId, summaryData, panel);
+      await this.saveCacheToNotebook(panel);
+      this.setAssistantStatus(
+        `Summary refreshed for cell ${cellIndex}.`,
+        1,
+        statusKey
+      );
+    } catch (error) {
+      console.error('[AI Assistant] summarizeCell failed:', error);
+      this.setAssistantStatus('Failed to refresh summary.', null, statusKey);
+      showLLMError(error, {
+        onOpenSettings: () => this.openLLMSettings(),
+        onRetry: () =>
+          void this.refreshTreeNodeSummary(panel, cellIndex, cellId)
+      });
+    }
+
+    this.updateTreePopupForPanel(panel);
+    this.updateNotebookInfo();
   }
 
   private renderTreePopupPlaceholder(
@@ -1186,7 +1493,7 @@ class AIAssistantPanel extends Widget {
             generatedCell.type,
             title,
             summary,
-            this.isGeneratedCellId(childCellId)
+            this.isGeneratedCellId(childCellId, panel)
           )}
           ${nestedChildNodes}
         </div>
@@ -1269,7 +1576,7 @@ class AIAssistantPanel extends Widget {
     }
 
     notebookTree
-      .querySelectorAll<HTMLButtonElement>('.jp-ai-assistant-tree-node-button')
+      .querySelectorAll<HTMLElement>('.jp-ai-assistant-tree-node-button')
       .forEach(button => {
         button.ondragstart = event => {
           if (!button.dataset.cellId) {
@@ -1520,7 +1827,7 @@ class AIAssistantPanel extends Widget {
     cellIndex: number,
     behavior: ScrollBehavior
   ): void {
-    const activeNode = root.querySelector<HTMLButtonElement>(
+    const activeNode = root.querySelector<HTMLElement>(
       `.jp-ai-assistant-tree-node-button[data-cell-index="${cellIndex}"]`
     );
 
@@ -1606,6 +1913,30 @@ class AIAssistantPanel extends Widget {
     await panel.content.scrollToItem(cellIndex, 'center');
     this.updateNotebookInfo();
     this.scrollActiveTreeNodeIntoView();
+  }
+
+  private getCellDescriptor(
+    panel: NotebookPanel,
+    cellIndex: number
+  ): ICellDescriptor | null {
+    const model = panel.content.model;
+
+    if (!model || cellIndex < 0 || cellIndex >= model.cells.length) {
+      return null;
+    }
+
+    const cell = model.cells.get(cellIndex);
+    const cellId = `${panel.context.path}:${cell.id}`;
+    const summaryData = this.getSummaryData(cellId, panel);
+
+    return {
+      cellId,
+      cellIndex,
+      cellType: cell.type,
+      source: cell.sharedModel.getSource(),
+      title: summaryData?.title,
+      summary: summaryData?.summary
+    };
   }
 
   private getCurrentCells(): ICellDescriptor[] {
@@ -1733,7 +2064,21 @@ class AIAssistantPanel extends Widget {
   }
 
   // 标记 context tree 中哪些节点是由 suggestion 生成的 cell。
-  private isGeneratedCellId(cellId: string): boolean {
+  private isGeneratedCellId(
+    cellId: string,
+    panel = this.notebookTracker.currentWidget
+  ): boolean {
+    const model = panel?.content.model;
+
+    if (panel && model) {
+      const cellIndex = this.findCellIndexByCellId(panel, cellId);
+
+      if (cellIndex >= 0) {
+        const metadata = model.cells.get(cellIndex).sharedModel.getMetadata();
+        return metadata.ai_assistant_generated === true;
+      }
+    }
+
     return Array.from(this.generatedCellIds.values()).includes(cellId);
   }
 
@@ -1821,16 +2166,16 @@ class AIAssistantPanel extends Widget {
 
   private setCellSummaryData(
     cellId: string,
-    summaryData: ICellSummaryData
+    summaryData: ICellSummaryData,
+    panel = this.notebookTracker.currentWidget
   ): void {
-    const current = this.notebookTracker.currentWidget;
-    const model = current?.content.model;
+    const model = panel?.content.model;
 
-    if (!current || !model) {
+    if (!panel || !model) {
       return;
     }
 
-    const cellIndex = this.findCellIndexByCellId(current, cellId);
+    const cellIndex = this.findCellIndexByCellId(panel, cellId);
 
     if (cellIndex < 0) {
       return;
@@ -2140,10 +2485,11 @@ class AIAssistantPanel extends Widget {
   }
 
   // Update the cache timestamp and persist notebook changes to disk.
-  private async saveCacheToNotebook(): Promise<void> {
-    const current = this.notebookTracker.currentWidget;
-    const model = current?.content.model;
-    if (!current || !model) {
+  private async saveCacheToNotebook(
+    panel = this.notebookTracker.currentWidget
+  ): Promise<void> {
+    const model = panel?.content.model;
+    if (!panel || !model) {
       return;
     }
 
@@ -2156,7 +2502,7 @@ class AIAssistantPanel extends Widget {
           })
         )
       );
-      await current.context.save();
+      await panel.context.save();
       console.log('[AI Assistant] Cache saved to notebook metadata.');
     } catch (e) {
       console.error('[AI Assistant] Failed to save cache:', e);

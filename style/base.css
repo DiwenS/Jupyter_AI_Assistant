@@ -297,6 +297,33 @@ Fixed 固定显示，Hover 悬浮显示。 */
   overflow: auto;
 }
 
+.jp-ai-assistant-tree-context-menu {
+  background: var(--jp-layout-color1);
+  border: 1px solid var(--jp-border-color2);
+  box-shadow: var(--jp-elevation-z4);
+  display: grid;
+  min-width: 150px;
+  padding: 4px;
+  position: fixed;
+  z-index: 100000;
+}
+
+.jp-ai-assistant-tree-context-menu-button {
+  background: transparent;
+  border: 0;
+  color: var(--jp-ui-font-color1);
+  cursor: pointer;
+  font-family: var(--jp-ui-font-family);
+  padding: 6px 8px;
+  text-align: left;
+}
+
+.jp-ai-assistant-tree-context-menu-button:hover,
+.jp-ai-assistant-tree-context-menu-button:focus {
+  background: var(--jp-layout-color2);
+  outline: none;
+}
+
 /* Tree 外层容器：允许横向滚动，避免放大后内容被侧边栏裁掉。 */
 .jp-ai-assistant-tree {
   margin-top: 8px;
@@ -516,6 +543,38 @@ Fixed 固定显示，Hover 悬浮显示。 */
   outline: none;
 }
 
+.jp-ai-assistant-tree-node-editing {
+  cursor: text;
+}
+
+.jp-ai-assistant-tree-inline-editor {
+  background: var(--jp-layout-color1);
+  border: 1px solid var(--jp-brand-color1);
+  border-radius: 4px;
+  box-sizing: border-box;
+  color: var(--jp-ui-font-color1);
+  font-family: var(--jp-ui-font-family);
+  font-size: var(--jp-ui-font-size1);
+  line-height: 1.35;
+  min-width: 0;
+  outline: none;
+  padding: 4px 6px;
+}
+
+.jp-ai-assistant-tree-inline-editor:focus {
+  box-shadow: 0 0 0 2px var(--jp-brand-color2);
+}
+
+.jp-ai-assistant-tree-inline-title-editor {
+  font-weight: 600;
+  max-width: 220px;
+  width: 180px;
+}
+
+.jp-ai-assistant-tree-inline-summary-editor {
+  width: 220px;
+}
+
 /* 拖拽 tree node 时标记可放置的目标节点。 */
 .jp-ai-assistant-tree-node-drop-target {
   border-color: var(--jp-brand-color1);
@@ -584,6 +643,7 @@ Fixed 固定显示，Hover 悬浮显示。 */
   z-index: 100;
 }
 
+.jp-ai-assistant-tree-node-editing-summary .jp-ai-assistant-tree-node-tooltip,
 .jp-ai-assistant-tree-node-button:hover .jp-ai-assistant-tree-node-tooltip,
 .jp-ai-assistant-tree-node-button:focus .jp-ai-assistant-tree-node-tooltip {
   display: block;
