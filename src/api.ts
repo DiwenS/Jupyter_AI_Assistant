@@ -1,6 +1,7 @@
 import { ServerConnection } from '@jupyterlab/services';
 
 import { requestAPI } from './request';
+import { parseLLMError } from './llmErrors';
 
 // 1. 定义接口
 
@@ -149,7 +150,7 @@ export async function summarizeCell(
   );
 
   if (response.status === 'error') {
-    throw new Error('Server returned an error while summarizing the cell.');
+    throw parseLLMError(response as any);
   }
 
   return response;
@@ -193,7 +194,7 @@ export async function suggestNextSteps(
   );
 
   if (response.status === 'error') {
-    throw new Error('Server returned an error while suggesting next steps.');
+    throw parseLLMError(response as any);
   }
 
   return response;
@@ -229,7 +230,7 @@ export async function selectSuggestion(
   );
 
   if (response.status === 'error') {
-    throw new Error('Server returned an error while selecting suggestion.');
+    throw parseLLMError(response as any);
   }
 
   return response;
@@ -248,7 +249,7 @@ export async function getLLMConfig(
   );
 
   if (response.status === 'error') {
-    throw new Error('Server returned an error while fetching LLM config.');
+    throw parseLLMError(response as any);
   }
 
   return response;
@@ -270,7 +271,7 @@ export async function updateLLMConfig(
   );
 
   if (response.status === 'error') {
-    throw new Error('Server returned an error while updating LLM config.');
+    throw parseLLMError(response as any);
   }
 
   return response;

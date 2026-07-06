@@ -25,6 +25,8 @@ import {
   getLLMConfig,
   updateLLMConfig
 } from './api';
+import { showLLMError } from './errorDisplay';
+import { toLLMErrorInfo, presentLLMError } from './llmErrors';
 
 // Tree 中 node summary 的两种显示方式：固定显示或 hover 悬浮显示。
 type SummaryDisplayMode = 'fixed' | 'hover';
@@ -369,17 +371,6 @@ class AIAssistantPanel extends Widget {
         : ''
       }
 
-      <div class="jp-ai-assistant-llm-row">
-        <label class="jp-ai-assistant-llm-field jp-ai-assistant-llm-field-inline">
-          <span>Max tokens</span>
-          <input id="llm-max-tokens" type="number" min="1" value="${config.maxTokens}" />
-        </label>
-        <label class="jp-ai-assistant-llm-field jp-ai-assistant-llm-field-inline">
-          <span>Temperature</span>
-          <input id="llm-temperature" type="number" min="0" max="2" step="0.1" value="${config.temperature}" />
-        </label>
-      </div>
-
       <div class="jp-ai-assistant-llm-actions">
         <button id="llm-save" class="jp-ai-assistant-llm-save-button" type="button" ${this.llmSaving ? 'disabled' : ''}>
           ${this.llmSaving ? 'Saving...' : 'Save'}
@@ -605,12 +596,6 @@ class AIAssistantPanel extends Widget {
     const apiKeyInput = this.node.querySelector(
       '#llm-api-key'
     ) as HTMLInputElement | null;
-    const maxTokensInput = this.node.querySelector(
-      '#llm-max-tokens'
-    ) as HTMLInputElement | null;
-    const temperatureInput = this.node.querySelector(
-      '#llm-temperature'
-    ) as HTMLInputElement | null;
 
     const update: Record<string, unknown> = {
       provider: providerSelect?.value ?? this.llmConfig.provider,
@@ -621,14 +606,6 @@ class AIAssistantPanel extends Widget {
     // 留空 apiKey 表示不修改已保存的 key，因此不发送该字段。
     if (apiKeyInput && apiKeyInput.value.trim() !== '') {
       update.apikey = apiKeyInput.value.trim();
-    }
-
-    if (maxTokensInput && maxTokensInput.value.trim() !== '') {
-      update.maxTokens = Number(maxTokensInput.value);
-    }
-
-    if (temperatureInput && temperatureInput.value.trim() !== '') {
-      update.temperature = Number(temperatureInput.value);
     }
 
     this.llmSaving = true;
@@ -642,11 +619,18 @@ class AIAssistantPanel extends Widget {
       this.llmStatusMessage = 'Saved.';
     } catch (error) {
       console.error('Failed to update LLM config:', error);
-      const message =
-        error instanceof Error
-          ? error.message
-          : 'Failed to save model settings.';
-      this.llmStatusMessage = message;
+      // 用友好中文文案替代原始异常信息，并弹出 toast 提示。
+      const info = toLLMErrorInfo(error);
+      const presentation = presentLLMError(info);
+      this.llmStatusMessage = `${presentation.title}: ${presentation.message}`;
+      showLLMError(error, {
+        onOpenSettings: () => {
+          const keyInput = this.node.querySelector(
+            '#llm-api-key'
+          ) as HTMLInputElement | null;
+          keyInput?.focus();
+        }
+      });
     } finally {
       this.llmSaving = false;
       this.rerenderLLMSettings();
@@ -1840,6 +1824,29 @@ class AIAssistantPanel extends Widget {
     }
   }
 
+  // 展开并聚焦到模型设置区，供错误提示中的「打开设置」按钮调用。
+  private openLLMSettings(): void {
+    this.modelSettingsCollapsed = false;
+    const settingsContainer = this.node.querySelector(
+      '#llm-settings'
+    ) as HTMLElement | null;
+    if (settingsContainer) {
+      settingsContainer.hidden = false;
+      settingsContainer.scrollIntoView({
+        behavior: 'smooth',
+        block: 'nearest'
+      });
+    }
+    const toggleButton = this.node.querySelector(
+      '#toggle-model-settings'
+    ) as HTMLButtonElement | null;
+    toggleButton?.setAttribute('aria-expanded', 'true');
+    const keyInput = this.node.querySelector(
+      '#llm-api-key'
+    ) as HTMLInputElement | null;
+    keyInput?.focus();
+  }
+
   private async refreshSummaries(): Promise<void> {
     const statusKey = this.getNotebookStatusKey();
     const cells = this.getCurrentCells();
@@ -1862,7 +1869,23 @@ class AIAssistantPanel extends Widget {
 
     for (let index = 0; index < totalCells; index++) {
       const cell = cells[index];
-      const response = await summarizeCell(this.serverSettings, cell);
+      let response: Awaited<ReturnType<typeof summarizeCell>>;
+      try {
+        response = await summarizeCell(this.serverSettings, cell);
+      } catch (error) {
+        console.error('[AI Assistant] summarizeCell failed:', error);
+        this.setAssistantStatus(
+          'Failed to refresh summaries.',
+          null,
+          statusKey
+        );
+        this.updateNotebookInfo();
+        showLLMError(error, {
+          onOpenSettings: () => this.openLLMSettings(),
+          onRetry: () => void this.refreshSummaries()
+        });
+        return;
+      }
       const summaryData = this.normalizeSummaryResponse(response);
       console.log('[AI Assistant] summarize-cell response:', response);
       console.log('[AI Assistant] normalized summary data:', summaryData);
@@ -1967,11 +1990,28 @@ class AIAssistantPanel extends Widget {
     this.updateNotebookInfo();
 
     const context = this.buildNotebookContext(cellIndex);
-    const response = await suggestNextSteps(
-      this.serverSettings,
-      selectedCell,
-      context
-    );
+    let response: Awaited<ReturnType<typeof suggestNextSteps>>;
+    try {
+      response = await suggestNextSteps(
+        this.serverSettings,
+        selectedCell,
+        context
+      );
+    } catch (error) {
+      console.error('[AI Assistant] suggestNextSteps failed:', error);
+      this.pendingSuggestionCellID = '';
+      this.setAssistantStatus(
+        `Failed to generate suggestions for cell ${cellIndex}.`,
+        null,
+        statusKey
+      );
+      this.updateNotebookInfo();
+      showLLMError(error, {
+        onOpenSettings: () => this.openLLMSettings(),
+        onRetry: () => void this.requestSuggestionsForCell(panel, cellIndex)
+      });
+      return;
+    }
 
     // 重新请求 AI Next 时，只保留仍有关联 generated cell 的旧 suggestions。
     this.pruneMissingGeneratedCells();
@@ -2236,12 +2276,29 @@ class AIAssistantPanel extends Widget {
     this.updateNotebookInfo();
 
     const context = this.buildNotebookContext(cell.cellIndex);
-    const response = await selectSuggestion(
-      this.serverSettings,
-      cell,
-      suggestion,
-      context
-    );
+    let response: Awaited<ReturnType<typeof selectSuggestion>>;
+    try {
+      response = await selectSuggestion(
+        this.serverSettings,
+        cell,
+        suggestion,
+        context
+      );
+    } catch (error) {
+      console.error('[AI Assistant] selectSuggestion failed:', error);
+      this.pendingSuggestionCellID = '';
+      this.setAssistantStatus(
+        'Failed to generate content for selected suggestion.',
+        null,
+        statusKey
+      );
+      this.updateNotebookInfo();
+      showLLMError(error, {
+        onOpenSettings: () => this.openLLMSettings(),
+        onRetry: () => void this.selectSuggestionForCell(cell, suggestion)
+      });
+      return;
+    }
     const generatedContent = response.suggestion.content;
 
     if (typeof generatedContent !== 'string') {
@@ -2306,6 +2363,9 @@ class AIAssistantPanel extends Widget {
           null,
           statusKey
         );
+        showLLMError(error, {
+          onOpenSettings: () => this.openLLMSettings()
+        });
       }
 
       await this.saveCacheToNotebook();
