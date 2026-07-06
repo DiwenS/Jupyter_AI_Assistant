@@ -167,6 +167,12 @@ Fixed 固定显示，Hover 悬浮显示。 */
   width: 24px;
 }
 
+.jp-ai-assistant-tree-toolbar #open-tree-popup {
+  font-weight: 500;
+  padding: 0 8px;
+  width: auto;
+}
+
 .jp-ai-assistant-tree-toolbar button:hover,
 .jp-ai-assistant-tree-toolbar button:focus {
   border-color: var(--jp-brand-color1);
@@ -191,6 +197,104 @@ Fixed 固定显示，Hover 悬浮显示。 */
   font-size: var(--jp-ui-font-size0);
   line-height: 1.4;
   margin-top: 6px;
+}
+
+.jp-ai-assistant-tree-popup-placeholder {
+  background: var(--jp-layout-color2);
+  border: 1px solid var(--jp-border-color2);
+  color: var(--jp-ui-font-color1);
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 10px;
+}
+
+.jp-ai-assistant-tree-popup-placeholder span {
+  color: var(--jp-ui-font-color2);
+  font-size: var(--jp-ui-font-size1);
+  overflow-wrap: anywhere;
+}
+
+.jp-ai-assistant-tree-popup-placeholder-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.jp-ai-assistant-tree-popup-action-button {
+  background: var(--jp-layout-color1);
+  border: 1px solid var(--jp-border-color2);
+  color: var(--jp-ui-font-color1);
+  cursor: pointer;
+  font-family: var(--jp-ui-font-family);
+  padding: 3px 8px;
+}
+
+.jp-ai-assistant-tree-popup-action-button:hover,
+.jp-ai-assistant-tree-popup-action-button:focus {
+  border-color: var(--jp-brand-color1);
+  outline: none;
+}
+
+.jp-ai-assistant-tree-browser-popup {
+  background: var(--jp-layout-color1);
+  box-sizing: border-box;
+  color: var(--jp-ui-font-color1);
+  display: flex;
+  flex-direction: column;
+  font-family: var(--jp-ui-font-family);
+  gap: 8px;
+  height: 100vh;
+  overflow: hidden;
+  padding: 10px 12px 12px;
+  width: 100vw;
+}
+
+.jp-ai-assistant-tree-browser-header {
+  align-items: center;
+  border-bottom: 1px solid var(--jp-border-color2);
+  display: flex;
+  justify-content: space-between;
+  padding-bottom: 8px;
+}
+
+.jp-ai-assistant-tree-browser-header h3 {
+  margin: 0;
+}
+
+.jp-ai-assistant-tree-popup-close {
+  align-items: center;
+  background: var(--jp-layout-color2);
+  border: 1px solid var(--jp-border-color2);
+  color: var(--jp-ui-font-color1);
+  cursor: pointer;
+  display: inline-flex;
+  font-family: var(--jp-ui-font-family);
+  font-size: 18px;
+  height: 28px;
+  justify-content: center;
+  line-height: 1;
+  padding: 0;
+  width: 28px;
+}
+
+.jp-ai-assistant-tree-popup-close:hover,
+.jp-ai-assistant-tree-popup-close:focus {
+  border-color: var(--jp-brand-color1);
+  outline: none;
+}
+
+.jp-ai-assistant-tree-popup-notebook-path {
+  color: var(--jp-ui-font-color2);
+  font-size: var(--jp-ui-font-size1);
+  overflow-wrap: anywhere;
+}
+
+.jp-ai-assistant-tree-popup-tree {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
 }
 
 /* Tree 外层容器：允许横向滚动，避免放大后内容被侧边栏裁掉。 */
