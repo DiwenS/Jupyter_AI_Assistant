@@ -34,9 +34,16 @@ type GeneratedCellType = 'code' | 'markdown' | 'raw';
 const ROOT_TREE_PARENT_ID = 'ROOT';
 const CELL_SUMMARY_METADATA_KEY = 'ai_assistant_summary';
 const CELL_SUGGESTIONS_METADATA_KEY = 'ai_assistant_suggestions';
+const CELL_TREE_COLLAPSED_METADATA_KEY = 'ai_assistant_tree_collapsed';
 interface IAssistantStatus {
   message: string;
   progress: number | null;
+}
+interface ITreePopupState {
+  window: Window;
+  root: HTMLElement;
+  treeContainer: HTMLElement;
+  panel: NotebookPanel;
 }
 type IGeneratedSuggestion = ISuggestion & {
   content: string;
@@ -68,6 +75,7 @@ class AIAssistantPanel extends Widget {
   private summaryDisplayMode: SummaryDisplayMode = 'fixed';
   // 保存 tree 的缩放比例，1 表示 100%。
   private treeZoom = 1;
+  private treePopupStates = new Map<string, ITreePopupState>();
 
   // 当前 LLM 配置（从后端拉取，不含真实 apiKey）。初次渲染前为 null。
   private llmConfig: ILLMConfig | null = null;
@@ -126,6 +134,13 @@ class AIAssistantPanel extends Widget {
     });
   }
 
+  dispose(): void {
+    this.treePopupStates.forEach((_state, notebookPath) => {
+      this.closeTreePopup(notebookPath);
+    });
+    super.dispose();
+  }
+
   private render(): void {
     this.node.innerHTML = `
       <div class="jp-ai-assistant-root">
@@ -150,10 +165,6 @@ class AIAssistantPanel extends Widget {
           ${this.renderLLMSettingsBody()}
         </div>
         <hr />
-
-        <button id="refresh-notebook-info">
-          Refresh notebook info
-        </button>
 
         <button id="refresh-cell-summaries">
           Refresh summaries
@@ -207,9 +218,10 @@ class AIAssistantPanel extends Widget {
           </fieldset>
         </div>
         <div class="jp-ai-assistant-tree-toolbar">
-          <button id="tree-zoom-out" type="button" title="Zoom out tree">-</button>
-          <span id="tree-zoom-value">${Math.round(this.treeZoom * 100)}%</span>
-          <button id="tree-zoom-in" type="button" title="Zoom in tree">+</button>
+          <button id="tree-zoom-out" type="button" data-tree-zoom="out" title="Zoom out tree">-</button>
+          <span id="tree-zoom-value" class="jp-ai-assistant-tree-zoom-value">${Math.round(this.treeZoom * 100)}%</span>
+          <button id="tree-zoom-in" type="button" data-tree-zoom="in" title="Zoom in tree">+</button>
+          <button id="open-tree-popup" type="button" title="Open tree in popup window">Popup</button>
         </div>
         <div class="jp-ai-assistant-tree-legend">
           Angular nodes are code cells. Rounded nodes are markdown cells.
@@ -224,14 +236,6 @@ class AIAssistantPanel extends Widget {
 
       </div>
     `;
-
-    const refreshButton = this.node.querySelector(
-      '#refresh-notebook-info'
-    ) as HTMLButtonElement;
-
-    refreshButton.onclick = () => {
-      this.updateNotebookInfo();
-    };
 
     const summaryButton = this.node.querySelector(
       '#refresh-cell-summaries'
@@ -295,6 +299,18 @@ class AIAssistantPanel extends Widget {
       this.setTreeZoom(this.treeZoom + 0.1);
     };
 
+    const openTreePopupButton = this.node.querySelector(
+      '#open-tree-popup'
+    ) as HTMLButtonElement;
+
+    openTreePopupButton.onclick = () => {
+      const current = this.notebookTracker.currentWidget;
+
+      if (current) {
+        this.openTreePopup(current);
+      }
+    };
+
     this.updateTreeZoomControls();
     this.bindModelSettingsToggle();
     this.bindLLMSettingsEvents();
@@ -324,8 +340,8 @@ class AIAssistantPanel extends Widget {
     // ollama 走本地服务，一般不需要 apiKey；openai-compatible / anthropic 需要。
     const needsApiKey = provider !== 'ollama';
     const apiKeyPlaceholder = config.apiKeyConfigured
-      ? '已配置（留空则不修改）'
-      : '未配置';
+      ? 'Configured (leave blank to keep unchanged)'
+      : 'Not configured';
 
     const baseUrlPlaceholder = this.providerDefaultBaseUrl(provider);
     const modelPlaceholder = this.providerDefaultModelHint(provider);
@@ -356,8 +372,9 @@ class AIAssistantPanel extends Widget {
         />
       </label>
 
-      ${needsApiKey
-        ? `
+      ${
+        needsApiKey
+          ? `
       <label class="jp-ai-assistant-llm-field">
         <span>API Key</span>
         <input
@@ -368,7 +385,7 @@ class AIAssistantPanel extends Widget {
           autocomplete="off"
         />
       </label>`
-        : ''
+          : ''
       }
 
       <div class="jp-ai-assistant-llm-actions">
@@ -700,16 +717,54 @@ class AIAssistantPanel extends Widget {
       <p><b>Selected cell index:</b> ${activeCellIndex}</p>
     `;
 
+    this.updateTreePopupForPanel(current);
+
+    if (this.isTreePopupOpen(notebookName)) {
+      this.renderTreePopupPlaceholder(notebookTree, current);
+    } else {
+      this.renderNotebookTree(notebookTree, current);
+    }
+
+    // 给每个 cell 添加 AI next button。
+    this.attachAInextButtons();
+
+    // 同步显示当前cell 的 suggestions。
+    this.syncCellSuggestions();
+  }
+
+  private renderNotebookTree(
+    notebookTree: HTMLElement,
+    panel: NotebookPanel
+  ): void {
+    const notebook = panel.content;
+    const model = notebook.model;
+
+    if (!model) {
+      notebookTree.innerHTML = '';
+      return;
+    }
+
+    const notebookName = panel.context.path;
+    const cellCount = model.cells.length;
+    const activeCellIndex = notebook.activeCellIndex;
+    const activeCellId =
+      activeCellIndex >= 0 && activeCellIndex < cellCount
+        ? `${panel.context.path}:${model.cells.get(activeCellIndex).id}`
+        : '';
+    const visibleActiveCellId = activeCellId
+      ? this.getVisibleTreeTargetCellId(panel, activeCellId)
+      : '';
     const treeNodes: string[] = [];
-    const generatedCellIdSet = new Set(this.generatedCellIds.values());
-    const childCellIdSet = this.getTreeChildCellIds(current);
+    const childCellIdSet = this.getTreeChildCellIds(panel);
     const renderTreeNode = (
       cellId: string,
       cellIndex: number,
       cellType: string,
       title: string,
       summary: string,
-      isGenerated: boolean
+      isGenerated: boolean,
+      hasChildren: boolean,
+      isCollapsed: boolean
     ): string => {
       const normalizedCellType = cellType.toLowerCase();
       const trimmedTitle = title.trim();
@@ -722,45 +777,66 @@ class AIAssistantPanel extends Widget {
       const aiMetaLabel = isGenerated ? ' · AI' : '';
       const nodeMetaMarkup = trimmedTitle
         ? `<span class="jp-ai-assistant-tree-node-meta">#${cellIndex} · ${this.escapeHtml(
-          cellTypeLabel
-        )}${aiMetaLabel}</span>`
+            cellTypeLabel
+          )}${aiMetaLabel}</span>`
         : '';
       const compactAiMarkup =
         isGenerated && !trimmedTitle
           ? '<span class="jp-ai-assistant-tree-node-compact-ai">AI</span>'
           : '';
-      const activeClass =
-        cellIndex === activeCellIndex
-          ? ' jp-ai-assistant-tree-node-active'
-          : '';
+      const isDirectActive =
+        cellId === activeCellId && cellId === visibleActiveCellId;
+      const containsActiveHiddenCell =
+        cellId === visibleActiveCellId && cellId !== activeCellId;
+      const activeClass = isDirectActive
+        ? ' jp-ai-assistant-tree-node-active'
+        : '';
+      const activeDescendantClass = containsActiveHiddenCell
+        ? ' jp-ai-assistant-tree-node-active-descendant'
+        : '';
       const generatedClass = isGenerated
         ? ' jp-ai-assistant-tree-node-generated'
         : '';
-      // 根据 cell 类型决定 node 形状，未知类型默认按 markdown 的圆形处理。
+      const collapsedClass = isCollapsed
+        ? ' jp-ai-assistant-tree-node-collapsed'
+        : '';
       const nodeShapeClass =
         normalizedCellType === 'code'
           ? ' jp-ai-assistant-tree-node-code'
           : ' jp-ai-assistant-tree-node-markdown';
-      // Fixed 模式：summary 固定显示在 node 右侧。
       const fixedSummaryMarkup =
         this.summaryDisplayMode === 'fixed'
           ? `<div class="jp-ai-assistant-tree-node-summary-fixed">${this.escapeHtml(
-            summary
-          )}</div>`
+              summary
+            )}</div>`
           : '';
-      // Hover 模式：summary 作为 tooltip，鼠标悬浮或键盘 focus 时显示。
       const hoverSummaryMarkup =
         this.summaryDisplayMode === 'hover'
           ? `<div class="jp-ai-assistant-tree-node-tooltip">${this.escapeHtml(
-            summary
-          )}</div>`
+              summary
+            )}</div>`
           : '';
+      const collapseToggleMarkup = hasChildren
+        ? `
+            <span
+              class="jp-ai-assistant-tree-collapse-toggle"
+              role="button"
+              tabindex="0"
+              data-tree-collapse-toggle="true"
+              data-cell-id="${this.escapeHtml(cellId)}"
+              aria-label="${isCollapsed ? 'Expand children' : 'Hide children'}"
+              aria-expanded="${isCollapsed ? 'false' : 'true'}"
+              title="${isCollapsed ? 'Expand children' : 'Hide children'}"
+            ></span>
+          `
+        : '';
 
       return `
-        <div class="jp-ai-assistant-tree-node${activeClass}${generatedClass}">
-          <button
+        <div class="jp-ai-assistant-tree-node${activeClass}${activeDescendantClass}${generatedClass}${collapsedClass}">
+          <div
             class="jp-ai-assistant-tree-node-button${nodeShapeClass}${titleLabelClass}"
-            type="button"
+            role="button"
+            tabindex="0"
             data-cell-index="${cellIndex}"
             data-cell-id="${this.escapeHtml(cellId)}"
             data-cell-type="${this.escapeHtml(normalizedCellType)}"
@@ -768,39 +844,39 @@ class AIAssistantPanel extends Widget {
             title="Jump to cell ${cellIndex}"
           >
             <span class="jp-ai-assistant-tree-node-label">${this.escapeHtml(
-        nodeLabel
-      )}</span>
+              nodeLabel
+            )}</span>
             ${nodeMetaMarkup}
             ${compactAiMarkup}
             ${hoverSummaryMarkup}
-          </button>
+            ${collapseToggleMarkup}
+          </div>
           ${fixedSummaryMarkup}
         </div>
       `;
     };
 
-    // 将没有 parent 的 cell 作为主干节点；有 parent 的节点递归显示为子节点。
     for (let i = 0; i < cellCount; i++) {
       const cell = model.cells.get(i);
-      const cellId = `${current.context.path}:${cell.id}`;
+      const cellId = `${panel.context.path}:${cell.id}`;
 
       if (childCellIdSet.has(cellId)) {
         continue;
       }
 
       const cellType = cell.type;
-      const summaryData = this.getSummaryData(cellId);
+      const summaryData = this.getSummaryData(cellId, panel);
       const title = summaryData?.title || '';
       const summary = summaryData?.summary || 'No summary generated yet.';
-      const childNodes = this.renderChildTreeNodes(
-        current,
-        cellId,
-        renderTreeNode
-      );
+      const hasChildren = this.hasTreeChildren(panel, cellId);
+      const isCollapsed = this.isTreeNodeCollapsed(cellId, panel);
+      const childNodes = isCollapsed
+        ? ''
+        : this.renderChildTreeNodes(panel, cellId, renderTreeNode);
 
       treeNodes.push(`
         <div class="jp-ai-assistant-tree-family">
-          ${renderTreeNode(cellId, i, cellType, title, summary, generatedCellIdSet.has(cellId))}
+          ${renderTreeNode(cellId, i, cellType, title, summary, this.isGeneratedCellId(cellId, panel), hasChildren, isCollapsed)}
           ${childNodes}
         </div>
       `);
@@ -824,27 +900,679 @@ class AIAssistantPanel extends Widget {
       </div>
     `;
 
-    // 给每个 tree node 绑定跳转事件：点击 node 后定位到 notebook 中对应 cell。
     notebookTree
-      .querySelectorAll<HTMLButtonElement>(
+      .querySelectorAll<HTMLElement>(
         '.jp-ai-assistant-tree-node-button[data-cell-index]'
       )
       .forEach(button => {
-        button.onclick = () => {
+        button.onclick = event => {
+          if (
+            this.isTreeInlineEditorEventTarget(event.target) ||
+            this.isTreeNodeCollapseToggleEventTarget(event.target)
+          ) {
+            return;
+          }
+
           const cellIndex = Number(button.dataset.cellIndex);
 
           if (Number.isInteger(cellIndex)) {
-            void this.jumpToCell(cellIndex);
+            void this.jumpToCell(cellIndex, panel);
+          }
+        };
+
+        button.onkeydown = event => {
+          if (
+            this.isTreeInlineEditorEventTarget(event.target) ||
+            this.isTreeNodeCollapseToggleEventTarget(event.target)
+          ) {
+            return;
+          }
+
+          if (event.key !== 'Enter' && event.key !== ' ') {
+            return;
+          }
+
+          event.preventDefault();
+          const cellIndex = Number(button.dataset.cellIndex);
+
+          if (Number.isInteger(cellIndex)) {
+            void this.jumpToCell(cellIndex, panel);
+          }
+        };
+
+        button.oncontextmenu = event => {
+          this.showTreeNodeContextMenu(event, button, panel);
+        };
+      });
+
+    notebookTree
+      .querySelectorAll<HTMLElement>('[data-tree-collapse-toggle]')
+      .forEach(toggle => {
+        toggle.onclick = event => {
+          event.preventDefault();
+          event.stopPropagation();
+
+          const cellId = toggle.dataset.cellId;
+
+          if (cellId) {
+            void this.toggleTreeNodeCollapsed(panel, cellId);
+          }
+        };
+
+        toggle.onkeydown = event => {
+          if (event.key !== 'Enter' && event.key !== ' ') {
+            return;
+          }
+
+          event.preventDefault();
+          event.stopPropagation();
+
+          const cellId = toggle.dataset.cellId;
+
+          if (cellId) {
+            void this.toggleTreeNodeCollapsed(panel, cellId);
           }
         };
       });
-    this.attachTreeDragHandlers(notebookTree);
+    this.attachTreeDragHandlers(notebookTree, panel);
+  }
 
-    // 给每个 cell 添加 AI next button。
-    this.attachAInextButtons();
+  private showTreeNodeContextMenu(
+    event: MouseEvent,
+    button: HTMLElement,
+    panel: NotebookPanel
+  ): void {
+    event.preventDefault();
+    event.stopPropagation();
 
-    // 同步显示当前cell 的 suggestions。
-    this.syncCellSuggestions();
+    const cellIndex = Number(button.dataset.cellIndex);
+    const cellId = button.dataset.cellId;
+    const ownerDocument = button.ownerDocument;
+    const ownerWindow = ownerDocument.defaultView ?? window;
+
+    if (!Number.isInteger(cellIndex) || !cellId) {
+      return;
+    }
+
+    this.closeTreeContextMenus(ownerDocument);
+
+    const menu = ownerDocument.createElement('div');
+    menu.className = 'jp-ai-assistant-tree-context-menu';
+    menu.style.left = `${event.clientX}px`;
+    menu.style.top = `${event.clientY}px`;
+
+    const addMenuButton = (label: string, action: () => void) => {
+      const menuButton = ownerDocument.createElement('button');
+      menuButton.type = 'button';
+      menuButton.className = 'jp-ai-assistant-tree-context-menu-button';
+      menuButton.textContent = label;
+      menuButton.onclick = menuEvent => {
+        menuEvent.preventDefault();
+        menuEvent.stopPropagation();
+        this.closeTreeContextMenus(ownerDocument);
+        action();
+      };
+      menu.appendChild(menuButton);
+    };
+
+    addMenuButton('Edit title', () => {
+      this.startTreeNodeTitleEdit(panel, button, cellId);
+    });
+    addMenuButton('Edit summary', () => {
+      this.startTreeNodeSummaryEdit(panel, button, cellId);
+    });
+    addMenuButton('Refresh summary', () => {
+      void this.refreshTreeNodeSummary(panel, cellIndex, cellId);
+    });
+
+    if (this.hasTreeChildren(panel, cellId)) {
+      const isCollapsed = this.isTreeNodeCollapsed(cellId, panel);
+      addMenuButton(isCollapsed ? 'Expand children' : 'Hide children', () => {
+        void this.toggleTreeNodeCollapsed(panel, cellId, !isCollapsed);
+      });
+    }
+
+    ownerDocument.body.appendChild(menu);
+    const menuRect = menu.getBoundingClientRect();
+    const viewportWidth = ownerDocument.documentElement.clientWidth;
+    const viewportHeight = ownerDocument.documentElement.clientHeight;
+
+    if (menuRect.right > viewportWidth) {
+      menu.style.left = `${Math.max(8, viewportWidth - menuRect.width - 8)}px`;
+    }
+
+    if (menuRect.bottom > viewportHeight) {
+      menu.style.top = `${Math.max(8, viewportHeight - menuRect.height - 8)}px`;
+    }
+
+    const dismiss = () => {
+      this.closeTreeContextMenus(ownerDocument);
+      ownerDocument.removeEventListener('click', dismiss);
+      ownerDocument.removeEventListener('keydown', dismissOnEscape);
+    };
+    const dismissOnEscape = (keyboardEvent: KeyboardEvent) => {
+      if (keyboardEvent.key === 'Escape') {
+        dismiss();
+      }
+    };
+
+    ownerWindow.setTimeout(() => {
+      ownerDocument.addEventListener('click', dismiss);
+      ownerDocument.addEventListener('keydown', dismissOnEscape);
+    }, 0);
+  }
+
+  private closeTreeContextMenus(ownerDocument: Document): void {
+    ownerDocument
+      .querySelectorAll('.jp-ai-assistant-tree-context-menu')
+      .forEach(menu => menu.remove());
+  }
+
+  private startTreeNodeTitleEdit(
+    panel: NotebookPanel,
+    button: HTMLElement,
+    cellId: string
+  ): void {
+    const currentSummary = this.getSummaryData(cellId, panel) ?? {
+      title: '',
+      summary: ''
+    };
+    const label = button.querySelector<HTMLElement>(
+      '.jp-ai-assistant-tree-node-label'
+    );
+
+    if (!label) {
+      return;
+    }
+
+    button.classList.add('jp-ai-assistant-tree-node-editing');
+    button.draggable = false;
+    label.innerHTML = '';
+
+    const editor = button.ownerDocument.createElement('input');
+    editor.className =
+      'jp-ai-assistant-tree-inline-editor jp-ai-assistant-tree-inline-title-editor';
+    editor.type = 'text';
+    editor.value = currentSummary.title;
+    editor.placeholder = 'Title';
+    label.appendChild(editor);
+
+    this.bindTreeInlineEditor(editor, {
+      onCancel: () => {
+        this.updateTreePopupForPanel(panel);
+        this.updateNotebookInfo();
+      },
+      onCommit: value => {
+        void this.saveTreeNodeSummaryData(panel, cellId, {
+          ...currentSummary,
+          title: this.limitSummaryTitle(value)
+        });
+      }
+    });
+  }
+
+  private startTreeNodeSummaryEdit(
+    panel: NotebookPanel,
+    button: HTMLElement,
+    cellId: string
+  ): void {
+    const currentSummary = this.getSummaryData(cellId, panel) ?? {
+      title: '',
+      summary: ''
+    };
+    const node = button.closest<HTMLElement>('.jp-ai-assistant-tree-node');
+    const summaryTarget =
+      node?.querySelector<HTMLElement>(
+        '.jp-ai-assistant-tree-node-summary-fixed'
+      ) ??
+      button.querySelector<HTMLElement>('.jp-ai-assistant-tree-node-tooltip');
+
+    if (!node || !summaryTarget) {
+      return;
+    }
+
+    node.classList.add('jp-ai-assistant-tree-node-editing-summary');
+    summaryTarget.innerHTML = '';
+
+    const editor = button.ownerDocument.createElement('input');
+    editor.className =
+      'jp-ai-assistant-tree-inline-editor jp-ai-assistant-tree-inline-summary-editor';
+    editor.type = 'text';
+    editor.value = currentSummary.summary;
+    editor.placeholder = 'Summary';
+    summaryTarget.appendChild(editor);
+
+    this.bindTreeInlineEditor(editor, {
+      onCancel: () => {
+        this.updateTreePopupForPanel(panel);
+        this.updateNotebookInfo();
+      },
+      onCommit: value => {
+        void this.saveTreeNodeSummaryData(panel, cellId, {
+          ...currentSummary,
+          summary: this.normalizeInlineSummaryText(value)
+        });
+      }
+    });
+  }
+
+  private bindTreeInlineEditor(
+    editor: HTMLInputElement,
+    options: {
+      onCancel: () => void;
+      onCommit: (value: string) => void;
+    }
+  ): void {
+    let finished = false;
+    const finish = (commit: boolean) => {
+      if (finished) {
+        return;
+      }
+
+      finished = true;
+
+      if (commit) {
+        options.onCommit(editor.value);
+      } else {
+        options.onCancel();
+      }
+    };
+    const stopTreeInteraction = (event: Event) => {
+      event.stopPropagation();
+    };
+
+    editor.onclick = stopTreeInteraction;
+    editor.onmousedown = stopTreeInteraction;
+    editor.ondblclick = stopTreeInteraction;
+    editor.oncontextmenu = stopTreeInteraction;
+    editor.onkeydown = event => {
+      event.stopPropagation();
+
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        finish(false);
+        return;
+      }
+
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        finish(true);
+      }
+    };
+    editor.onblur = () => {
+      finish(true);
+    };
+
+    const editorWindow = editor.ownerDocument.defaultView ?? window;
+    editorWindow.setTimeout(() => {
+      editor.focus();
+      editor.select();
+    }, 0);
+  }
+
+  private normalizeInlineSummaryText(summary: string): string {
+    return summary.trim().replace(/\s+/g, ' ');
+  }
+
+  private async saveTreeNodeSummaryData(
+    panel: NotebookPanel,
+    cellId: string,
+    nextSummaryData: ICellSummaryData
+  ): Promise<void> {
+    this.setCellSummaryData(cellId, nextSummaryData, panel);
+    this.summaries.set(cellId, nextSummaryData);
+    await this.saveCacheToNotebook(panel);
+    this.updateTreePopupForPanel(panel);
+    this.updateNotebookInfo();
+  }
+
+  private isTreeInlineEditorEventTarget(target: EventTarget | null): boolean {
+    if (!target || !('closest' in target)) {
+      return false;
+    }
+
+    const element = target as Element;
+    return Boolean(element.closest('.jp-ai-assistant-tree-inline-editor'));
+  }
+
+  private isTreeNodeCollapseToggleEventTarget(
+    target: EventTarget | null
+  ): boolean {
+    if (!target || !('closest' in target)) {
+      return false;
+    }
+
+    const element = target as Element;
+    return Boolean(element.closest('[data-tree-collapse-toggle]'));
+  }
+
+  private isTreeNodeCollapsed(
+    cellId: string,
+    panel = this.notebookTracker.currentWidget
+  ): boolean {
+    const model = panel?.content.model;
+
+    if (!panel || !model) {
+      return false;
+    }
+
+    const cellIndex = this.findCellIndexByCellId(panel, cellId);
+
+    if (cellIndex < 0) {
+      return false;
+    }
+
+    const metadata = model.cells.get(cellIndex).sharedModel.getMetadata();
+    return metadata[CELL_TREE_COLLAPSED_METADATA_KEY] === true;
+  }
+
+  private async toggleTreeNodeCollapsed(
+    panel: NotebookPanel,
+    cellId: string,
+    collapsed = !this.isTreeNodeCollapsed(cellId, panel)
+  ): Promise<void> {
+    const model = panel.content.model;
+
+    if (!model) {
+      return;
+    }
+
+    const cellIndex = this.findCellIndexByCellId(panel, cellId);
+
+    if (cellIndex < 0) {
+      return;
+    }
+
+    const cell = model.cells.get(cellIndex);
+
+    if (collapsed) {
+      cell.sharedModel.setMetadata(CELL_TREE_COLLAPSED_METADATA_KEY, true);
+    } else {
+      cell.sharedModel.deleteMetadata(CELL_TREE_COLLAPSED_METADATA_KEY);
+    }
+
+    await panel.context.save();
+    this.updateTreePopupForPanel(panel);
+    this.updateNotebookInfo();
+  }
+
+  private async refreshTreeNodeSummary(
+    panel: NotebookPanel,
+    cellIndex: number,
+    cellId: string
+  ): Promise<void> {
+    const cell = this.getCellDescriptor(panel, cellIndex);
+
+    if (!cell) {
+      return;
+    }
+
+    const statusKey = this.getNotebookStatusKey(panel);
+    this.setAssistantStatus(
+      `Refreshing summary for cell ${cellIndex}.`,
+      0.5,
+      statusKey
+    );
+
+    try {
+      const response = await summarizeCell(this.serverSettings, cell);
+      const summaryData = this.normalizeSummaryResponse(response);
+      this.summaries.set(cellId, summaryData);
+      this.setCellSummaryData(cellId, summaryData, panel);
+      await this.saveCacheToNotebook(panel);
+      this.setAssistantStatus(
+        `Summary refreshed for cell ${cellIndex}.`,
+        1,
+        statusKey
+      );
+    } catch (error) {
+      console.error('[AI Assistant] summarizeCell failed:', error);
+      this.setAssistantStatus('Failed to refresh summary.', null, statusKey);
+      showLLMError(error, {
+        onOpenSettings: () => this.openLLMSettings(),
+        onRetry: () =>
+          void this.refreshTreeNodeSummary(panel, cellIndex, cellId)
+      });
+    }
+
+    this.updateTreePopupForPanel(panel);
+    this.updateNotebookInfo();
+  }
+
+  private renderTreePopupPlaceholder(
+    notebookTree: HTMLElement,
+    panel: NotebookPanel
+  ): void {
+    const notebookPath = panel.context.path;
+    notebookTree.innerHTML = `
+      <div class="jp-ai-assistant-tree-popup-placeholder">
+        <strong>Notebook Tree is open in a popup window.</strong>
+        <span>${this.escapeHtml(notebookPath)}</span>
+        <div class="jp-ai-assistant-tree-popup-placeholder-actions">
+          <button class="jp-ai-assistant-tree-popup-action-button" type="button" data-tree-popup-action="focus">Focus popup</button>
+          <button class="jp-ai-assistant-tree-popup-action-button" type="button" data-tree-popup-action="close">Close popup</button>
+        </div>
+      </div>
+    `;
+
+    const focusButton = notebookTree.querySelector<HTMLButtonElement>(
+      '[data-tree-popup-action="focus"]'
+    );
+    const closeButton = notebookTree.querySelector<HTMLButtonElement>(
+      '[data-tree-popup-action="close"]'
+    );
+
+    if (focusButton) {
+      focusButton.onclick = () => {
+        this.treePopupStates.get(notebookPath)?.window.focus();
+      };
+    }
+
+    if (closeButton) {
+      closeButton.onclick = () => {
+        this.closeTreePopup(notebookPath);
+        this.updateNotebookInfo();
+      };
+    }
+  }
+
+  private isTreePopupOpen(notebookPath: string): boolean {
+    const state = this.treePopupStates.get(notebookPath);
+
+    if (!state) {
+      return false;
+    }
+
+    if (state.window.closed) {
+      this.treePopupStates.delete(notebookPath);
+      return false;
+    }
+
+    return true;
+  }
+
+  private openTreePopup(panel: NotebookPanel): void {
+    const notebookPath = panel.context.path;
+    const existingPopup = this.treePopupStates.get(notebookPath);
+
+    if (existingPopup && !existingPopup.window.closed) {
+      existingPopup.window.focus();
+      this.updateNotebookInfo();
+      return;
+    }
+
+    const popupWindow = this.openTreeBrowserPopup(notebookPath);
+
+    if (!popupWindow) {
+      this.setAssistantStatus(
+        'Popup was blocked by the browser. Please allow popups for this JupyterLab site.'
+      );
+      return;
+    }
+
+    const popupDocument = popupWindow.document;
+    popupDocument.open();
+    popupDocument.write(`
+      <!doctype html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>Notebook Tree - ${this.escapeHtml(notebookPath)}</title>
+        </head>
+        <body></body>
+      </html>
+    `);
+    popupDocument.close();
+    this.copyTreePopupStyles(popupDocument);
+
+    const root = popupDocument.createElement('div');
+    root.className = 'jp-ai-assistant-tree-browser-popup';
+    root.innerHTML = `
+      <div class="jp-ai-assistant-tree-browser-header">
+        <h3>Notebook Tree</h3>
+        <button
+          class="jp-ai-assistant-tree-popup-close"
+          type="button"
+          aria-label="Close Notebook Tree popup"
+          title="Close"
+        >
+          ×
+        </button>
+      </div>
+      <div class="jp-ai-assistant-tree-popup-notebook-path">
+        ${this.escapeHtml(notebookPath)}
+      </div>
+      <div class="jp-ai-assistant-tree-toolbar">
+        <button type="button" data-tree-zoom="out" title="Zoom out tree">-</button>
+        <span class="jp-ai-assistant-tree-zoom-value">${Math.round(
+          this.treeZoom * 100
+        )}%</span>
+        <button type="button" data-tree-zoom="in" title="Zoom in tree">+</button>
+      </div>
+      <div class="jp-ai-assistant-tree-legend">
+        Angular nodes are code cells. Rounded nodes are markdown cells.
+      </div>
+      <div class="jp-ai-assistant-tree-popup-tree"></div>
+    `;
+    popupDocument.body.appendChild(root);
+
+    const treeContainer = root.querySelector(
+      '.jp-ai-assistant-tree-popup-tree'
+    ) as HTMLElement;
+    const popupState: ITreePopupState = {
+      window: popupWindow,
+      root,
+      treeContainer,
+      panel
+    };
+    this.treePopupStates.set(notebookPath, popupState);
+
+    root
+      .querySelector<HTMLButtonElement>('.jp-ai-assistant-tree-popup-close')
+      ?.addEventListener('click', () => {
+        this.closeTreePopup(notebookPath);
+        this.updateNotebookInfo();
+      });
+
+    popupWindow.onbeforeunload = () => {
+      this.treePopupStates.delete(notebookPath);
+      this.updateNotebookInfo();
+    };
+
+    this.bindTreeZoomControls(root);
+    this.updateTreePopupForPanel(panel);
+    popupWindow.focus();
+    this.updateNotebookInfo();
+  }
+
+  private openTreeBrowserPopup(notebookPath: string): Window | null {
+    const width = 900;
+    const height = 650;
+    const left = Math.max(60, window.screenX + 80);
+    const top = Math.max(60, window.screenY + 80);
+    const popupName = `ai-assistant-tree-${this.slugifyWindowName(
+      notebookPath
+    )}`;
+    const features = [
+      'popup=yes',
+      `width=${width}`,
+      `height=${height}`,
+      `left=${left}`,
+      `top=${top}`,
+      'resizable=yes',
+      'scrollbars=yes',
+      'toolbar=no',
+      'location=no',
+      'menubar=no',
+      'status=no',
+      'directories=no',
+      'personalbar=no'
+    ].join(',');
+
+    return window.open('', popupName, features);
+  }
+
+  private updateTreePopupForPanel(panel: NotebookPanel): void {
+    const notebookPath = panel.context.path;
+    const popupState = this.treePopupStates.get(notebookPath);
+
+    if (!popupState) {
+      return;
+    }
+
+    if (popupState.window.closed) {
+      this.treePopupStates.delete(notebookPath);
+      return;
+    }
+
+    popupState.panel = panel;
+    this.renderNotebookTree(popupState.treeContainer, panel);
+    this.bindTreeZoomControls(popupState.root);
+    this.updateTreeZoomControls();
+    this.scrollTreeNodeIntoView(
+      popupState.root,
+      this.getVisibleTreeTargetCellIndex(panel, panel.content.activeCellIndex),
+      'auto'
+    );
+  }
+
+  private closeTreePopup(notebookPath: string): void {
+    const popupState = this.treePopupStates.get(notebookPath);
+
+    if (!popupState) {
+      return;
+    }
+
+    this.treePopupStates.delete(notebookPath);
+
+    if (!popupState.window.closed) {
+      popupState.window.close();
+    }
+  }
+
+  private copyTreePopupStyles(popupDocument: Document): void {
+    document
+      .querySelectorAll<
+        HTMLLinkElement | HTMLStyleElement
+      >('link[rel="stylesheet"], style')
+      .forEach(styleNode => {
+        popupDocument.head.appendChild(styleNode.cloneNode(true));
+      });
+
+    const popupStyle = popupDocument.createElement('style');
+    popupStyle.textContent = `
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+      }
+    `;
+    popupDocument.head.appendChild(popupStyle);
+  }
+
+  private slugifyWindowName(text: string): string {
+    return text.replace(/[^a-zA-Z0-9_-]/g, '-');
   }
 
   private renderChildTreeNodes(
@@ -856,7 +1584,9 @@ class AIAssistantPanel extends Widget {
       cellType: string,
       title: string,
       summary: string,
-      isGenerated: boolean
+      isGenerated: boolean,
+      hasChildren: boolean,
+      isCollapsed: boolean
     ) => string,
     visitedCellIds = new Set<string>()
   ): string {
@@ -872,7 +1602,7 @@ class AIAssistantPanel extends Widget {
     for (let index = 0; index < model.cells.length; index++) {
       const childCell = model.cells.get(index);
       const childCellId = `${panel.context.path}:${childCell.id}`;
-      const parentId = this.getContextTreeParentId(childCellId);
+      const parentId = this.getContextTreeParentId(childCellId, panel);
 
       if (parentId !== sourceCellId || visitedCellIds.has(childCellId)) {
         continue;
@@ -885,26 +1615,32 @@ class AIAssistantPanel extends Widget {
       }
 
       const generatedCell = model.cells.get(generatedCellIndex);
-      const summaryData = this.getSummaryData(childCellId);
+      const summaryData = this.getSummaryData(childCellId, panel);
       const title = summaryData?.title || '';
       const summary = summaryData?.summary || 'No summary generated yet.';
-      const nestedChildNodes = this.renderChildTreeNodes(
-        panel,
-        childCellId,
-        renderTreeNode,
-        new Set(visitedCellIds)
-      );
+      const hasChildren = this.hasTreeChildren(panel, childCellId);
+      const isCollapsed = this.isTreeNodeCollapsed(childCellId, panel);
+      const nestedChildNodes = isCollapsed
+        ? ''
+        : this.renderChildTreeNodes(
+            panel,
+            childCellId,
+            renderTreeNode,
+            new Set(visitedCellIds)
+          );
 
       childNodes.push(`
         <div class="jp-ai-assistant-tree-family">
           ${renderTreeNode(
-        childCellId,
-        generatedCellIndex,
-        generatedCell.type,
-        title,
-        summary,
-        this.isGeneratedCellId(childCellId)
-      )}
+            childCellId,
+            generatedCellIndex,
+            generatedCell.type,
+            title,
+            summary,
+            this.isGeneratedCellId(childCellId, panel),
+            hasChildren,
+            isCollapsed
+          )}
           ${nestedChildNodes}
         </div>
       `);
@@ -919,6 +1655,25 @@ class AIAssistantPanel extends Widget {
         ${childNodes.join('')}
       </div>
     `;
+  }
+
+  private hasTreeChildren(panel: NotebookPanel, sourceCellId: string): boolean {
+    const model = panel.content.model;
+
+    if (!model) {
+      return false;
+    }
+
+    for (let index = 0; index < model.cells.length; index++) {
+      const childCell = model.cells.get(index);
+      const childCellId = `${panel.context.path}:${childCell.id}`;
+
+      if (this.getContextTreeParentId(childCellId, panel) === sourceCellId) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   // 收集所有有 parent 的 cell，渲染主干时避免重复显示。
@@ -940,7 +1695,7 @@ class AIAssistantPanel extends Widget {
     for (let index = 0; index < model.cells.length; index++) {
       const cell = model.cells.get(index);
       const cellId = `${panel.context.path}:${cell.id}`;
-      const parentId = this.getContextTreeParentId(cellId);
+      const parentId = this.getContextTreeParentId(cellId, panel);
 
       if (
         parentId !== ROOT_TREE_PARENT_ID &&
@@ -955,7 +1710,10 @@ class AIAssistantPanel extends Widget {
   }
 
   // 给 tree node 绑定拖拽事件，拖到另一个 node 上时更新 tree parent metadata。
-  private attachTreeDragHandlers(notebookTree: HTMLElement): void {
+  private attachTreeDragHandlers(
+    notebookTree: HTMLElement,
+    panel: NotebookPanel
+  ): void {
     const rootNode = notebookTree.querySelector<HTMLElement>(
       '.jp-ai-assistant-tree-root[data-tree-root]'
     );
@@ -977,13 +1735,13 @@ class AIAssistantPanel extends Widget {
         const draggedCellId = event.dataTransfer?.getData('text/plain');
 
         if (draggedCellId) {
-          this.reparentTreeNode(draggedCellId, null);
+          this.reparentTreeNode(draggedCellId, null, panel);
         }
       };
     }
 
     notebookTree
-      .querySelectorAll<HTMLButtonElement>('.jp-ai-assistant-tree-node-button')
+      .querySelectorAll<HTMLElement>('.jp-ai-assistant-tree-node-button')
       .forEach(button => {
         button.ondragstart = event => {
           if (!button.dataset.cellId) {
@@ -1011,7 +1769,7 @@ class AIAssistantPanel extends Widget {
           const targetCellId = button.dataset.cellId;
 
           if (draggedCellId && targetCellId) {
-            this.reparentTreeNode(draggedCellId, targetCellId);
+            this.reparentTreeNode(draggedCellId, targetCellId, panel);
           }
         };
       });
@@ -1020,25 +1778,25 @@ class AIAssistantPanel extends Widget {
   // 写入手动 tree parent，避免把节点拖成自己的子孙节点。
   private reparentTreeNode(
     childCellId: string,
-    parentCellId: string | null
+    parentCellId: string | null,
+    panel: NotebookPanel
   ): void {
-    const current = this.notebookTracker.currentWidget;
-    const model = current?.content.model;
+    const model = panel.content.model;
 
-    if (!current || !model || childCellId === parentCellId) {
+    if (!model || childCellId === parentCellId) {
       return;
     }
 
     if (
       parentCellId &&
-      this.isTreeDescendant(current, parentCellId, childCellId)
+      this.isTreeDescendant(panel, parentCellId, childCellId)
     ) {
       this.setAssistantStatus('Cannot move a node under its own child.');
       this.updateNotebookInfo();
       return;
     }
 
-    const childIndex = this.findCellIndexByCellId(current, childCellId);
+    const childIndex = this.findCellIndexByCellId(panel, childCellId);
 
     if (childIndex < 0) {
       return;
@@ -1054,7 +1812,8 @@ class AIAssistantPanel extends Widget {
         ? `Moved cell ${childIndex} under another tree node.`
         : `Moved cell ${childIndex} under Root.`
     );
-    void current.context.save();
+    void panel.context.save();
+    this.updateTreePopupForPanel(panel);
     this.updateNotebookInfo();
   }
 
@@ -1074,7 +1833,7 @@ class AIAssistantPanel extends Widget {
       const cell = model.cells.get(index);
       const cellId = `${panel.context.path}:${cell.id}`;
 
-      if (this.getContextTreeParentId(cellId) !== sourceCellId) {
+      if (this.getContextTreeParentId(cellId, panel) !== sourceCellId) {
         continue;
       }
 
@@ -1155,8 +1914,15 @@ class AIAssistantPanel extends Widget {
     }
 
     this.observedPanels.add(panel);
+    panel.disposed.connect(() => {
+      const notebookPath = panel.context.path;
+      this.closeTreePopup(notebookPath);
+      this.observedPanels.delete(panel);
+      this.updateNotebookInfo();
+    });
     panel.content.modelContentChanged.connect(() => {
       this.pruneMissingGeneratedCells();
+      this.updateTreePopupForPanel(panel);
       this.updateNotebookInfo();
     });
   }
@@ -1201,79 +1967,203 @@ class AIAssistantPanel extends Widget {
     }
   }
 
-  // notebook 中选中 cell 后，自动把侧边栏 tree 中对应 node 滚动到可见区域。
+  // notebook 中选中 cell 后，自动把对应 tree node 滚动到可见区域。
   // 如果 tree 中没有对应 node，就直接忽略。
   private scrollActiveTreeNodeIntoView(): void {
     const current = this.notebookTracker.currentWidget;
     const activeCellIndex = current?.content.activeCellIndex;
 
-    if (activeCellIndex === undefined || activeCellIndex < 0) {
+    if (!current || activeCellIndex === undefined || activeCellIndex < 0) {
       return;
     }
 
-    const activeNode = this.node.querySelector<HTMLButtonElement>(
-      `.jp-ai-assistant-tree-node-button[data-cell-index="${activeCellIndex}"]`
+    const visibleActiveCellIndex = this.getVisibleTreeTargetCellIndex(
+      current,
+      activeCellIndex
+    );
+
+    this.scrollTreeNodeIntoView(this.node, visibleActiveCellIndex, 'smooth');
+
+    const popupState = this.treePopupStates.get(current.context.path);
+
+    if (popupState && !popupState.window.closed) {
+      this.updateTreePopupForPanel(current);
+      this.scrollTreeNodeIntoView(
+        popupState.root,
+        visibleActiveCellIndex,
+        'smooth'
+      );
+    }
+  }
+
+  private getVisibleTreeTargetCellIndex(
+    panel: NotebookPanel,
+    cellIndex: number
+  ): number {
+    const model = panel.content.model;
+
+    if (!model || cellIndex < 0 || cellIndex >= model.cells.length) {
+      return cellIndex;
+    }
+
+    const cell = model.cells.get(cellIndex);
+    const cellId = `${panel.context.path}:${cell.id}`;
+    const visibleCellId = this.getVisibleTreeTargetCellId(panel, cellId);
+
+    return this.findCellIndexByCellId(panel, visibleCellId);
+  }
+
+  private getVisibleTreeTargetCellId(
+    panel: NotebookPanel,
+    cellId: string
+  ): string {
+    const ancestorCellIds = this.getTreeAncestorCellIds(panel, cellId);
+
+    for (const ancestorCellId of ancestorCellIds) {
+      if (this.isTreeNodeCollapsed(ancestorCellId, panel)) {
+        return ancestorCellId;
+      }
+    }
+
+    return cellId;
+  }
+
+  private getTreeAncestorCellIds(
+    panel: NotebookPanel,
+    cellId: string
+  ): string[] {
+    const ancestorCellIds: string[] = [];
+    const visitedCellIds = new Set<string>([cellId]);
+    let parentId = this.getContextTreeParentId(cellId, panel);
+
+    while (
+      parentId !== ROOT_TREE_PARENT_ID &&
+      !visitedCellIds.has(parentId) &&
+      this.findCellIndexByCellId(panel, parentId) >= 0
+    ) {
+      ancestorCellIds.unshift(parentId);
+      visitedCellIds.add(parentId);
+      parentId = this.getContextTreeParentId(parentId, panel);
+    }
+
+    return ancestorCellIds;
+  }
+
+  private scrollTreeNodeIntoView(
+    root: ParentNode,
+    cellIndex: number,
+    behavior: ScrollBehavior
+  ): void {
+    const activeNode = root.querySelector<HTMLElement>(
+      `.jp-ai-assistant-tree-node-button[data-cell-index="${cellIndex}"]`
     );
 
     activeNode?.scrollIntoView({
       block: 'nearest',
       inline: 'nearest',
-      behavior: 'smooth'
+      behavior
     });
   }
 
   // 限制 tree 缩放范围，避免缩得太小看不清或放得太大撑破侧边栏。
   private setTreeZoom(nextZoom: number): void {
     this.treeZoom = Math.min(1.6, Math.max(0.7, Number(nextZoom.toFixed(1))));
+    this.treePopupStates.forEach(state => {
+      this.updateTreePopupForPanel(state.panel);
+    });
     this.updateTreeZoomControls();
     this.updateNotebookInfo();
   }
 
+  private bindTreeZoomControls(root: ParentNode): void {
+    root
+      .querySelectorAll<HTMLButtonElement>('[data-tree-zoom="out"]')
+      .forEach(button => {
+        button.onclick = () => {
+          this.setTreeZoom(this.treeZoom - 0.1);
+        };
+      });
+
+    root
+      .querySelectorAll<HTMLButtonElement>('[data-tree-zoom="in"]')
+      .forEach(button => {
+        button.onclick = () => {
+          this.setTreeZoom(this.treeZoom + 0.1);
+        };
+      });
+  }
+
   // 同步缩放按钮状态和当前百分比显示。
   private updateTreeZoomControls(): void {
-    const zoomValue = this.node.querySelector(
-      '#tree-zoom-value'
-    ) as HTMLElement;
-    const zoomOutButton = this.node.querySelector(
-      '#tree-zoom-out'
-    ) as HTMLButtonElement;
-    const zoomInButton = this.node.querySelector(
-      '#tree-zoom-in'
-    ) as HTMLButtonElement;
+    const roots: ParentNode[] = [this.node];
+    this.treePopupStates.forEach(state => {
+      if (!state.window.closed) {
+        roots.push(state.root);
+      }
+    });
 
-    if (zoomValue) {
-      zoomValue.textContent = `${Math.round(this.treeZoom * 100)}%`;
-    }
+    roots.forEach(root => {
+      root
+        .querySelectorAll<HTMLElement>('.jp-ai-assistant-tree-zoom-value')
+        .forEach(zoomValue => {
+          zoomValue.textContent = `${Math.round(this.treeZoom * 100)}%`;
+        });
 
-    if (zoomOutButton) {
-      zoomOutButton.disabled = this.treeZoom <= 0.7;
-    }
+      root
+        .querySelectorAll<HTMLButtonElement>('[data-tree-zoom="out"]')
+        .forEach(zoomOutButton => {
+          zoomOutButton.disabled = this.treeZoom <= 0.7;
+        });
 
-    if (zoomInButton) {
-      zoomInButton.disabled = this.treeZoom >= 1.6;
-    }
+      root
+        .querySelectorAll<HTMLButtonElement>('[data-tree-zoom="in"]')
+        .forEach(zoomInButton => {
+          zoomInButton.disabled = this.treeZoom >= 1.6;
+        });
+    });
   }
 
   // 跳转到 notebook 中对应的 cell，并把它滚动到视图中央。
-  private async jumpToCell(cellIndex: number): Promise<void> {
-    const current = this.notebookTracker.currentWidget;
-    const model = current?.content.model;
+  private async jumpToCell(
+    cellIndex: number,
+    panel = this.notebookTracker.currentWidget
+  ): Promise<void> {
+    const model = panel?.content.model;
 
-    if (
-      !current ||
-      !model ||
-      cellIndex < 0 ||
-      cellIndex >= model.cells.length
-    ) {
+    if (!panel || !model || cellIndex < 0 || cellIndex >= model.cells.length) {
       return;
     }
 
-    current.content.activeCellIndex = cellIndex;
-    current.activate();
-    current.content.activate();
-    await current.content.scrollToItem(cellIndex, 'center');
+    panel.content.activeCellIndex = cellIndex;
+    panel.activate();
+    panel.content.activate();
+    await panel.content.scrollToItem(cellIndex, 'center');
     this.updateNotebookInfo();
     this.scrollActiveTreeNodeIntoView();
+  }
+
+  private getCellDescriptor(
+    panel: NotebookPanel,
+    cellIndex: number
+  ): ICellDescriptor | null {
+    const model = panel.content.model;
+
+    if (!model || cellIndex < 0 || cellIndex >= model.cells.length) {
+      return null;
+    }
+
+    const cell = model.cells.get(cellIndex);
+    const cellId = `${panel.context.path}:${cell.id}`;
+    const summaryData = this.getSummaryData(cellId, panel);
+
+    return {
+      cellId,
+      cellIndex,
+      cellType: cell.type,
+      source: cell.sharedModel.getSource(),
+      title: summaryData?.title,
+      summary: summaryData?.summary
+    };
   }
 
   private getCurrentCells(): ICellDescriptor[] {
@@ -1361,15 +2251,17 @@ class AIAssistantPanel extends Widget {
   }
 
   // 从 cell metadata 读取 tree parent，用完整 cell id 返回给后端。
-  private getContextTreeParentId(cellId: string): string {
-    const current = this.notebookTracker.currentWidget;
-    const model = current?.content.model;
+  private getContextTreeParentId(
+    cellId: string,
+    panel = this.notebookTracker.currentWidget
+  ): string {
+    const model = panel?.content.model;
 
-    if (!current || !model) {
+    if (!panel || !model) {
       return ROOT_TREE_PARENT_ID;
     }
 
-    const cellIndex = this.findCellIndexByCellId(current, cellId);
+    const cellIndex = this.findCellIndexByCellId(panel, cellId);
 
     if (cellIndex < 0) {
       return ROOT_TREE_PARENT_ID;
@@ -1379,7 +2271,7 @@ class AIAssistantPanel extends Widget {
     const manualParentRawCellId = metadata.ai_assistant_tree_parent_cell_id;
     const generatedSource =
       typeof metadata.ai_assistant_generated_source === 'object' &&
-        metadata.ai_assistant_generated_source !== null
+      metadata.ai_assistant_generated_source !== null
         ? (metadata.ai_assistant_generated_source as Record<string, unknown>)
         : {};
     const generatedParentRawCellId =
@@ -1395,11 +2287,25 @@ class AIAssistantPanel extends Widget {
       return ROOT_TREE_PARENT_ID;
     }
 
-    return `${current.context.path}:${parentRawCellId}`;
+    return `${panel.context.path}:${parentRawCellId}`;
   }
 
   // 标记 context tree 中哪些节点是由 suggestion 生成的 cell。
-  private isGeneratedCellId(cellId: string): boolean {
+  private isGeneratedCellId(
+    cellId: string,
+    panel = this.notebookTracker.currentWidget
+  ): boolean {
+    const model = panel?.content.model;
+
+    if (panel && model) {
+      const cellIndex = this.findCellIndexByCellId(panel, cellId);
+
+      if (cellIndex >= 0) {
+        const metadata = model.cells.get(cellIndex).sharedModel.getMetadata();
+        return metadata.ai_assistant_generated === true;
+      }
+    }
+
     return Array.from(this.generatedCellIds.values()).includes(cellId);
   }
 
@@ -1449,19 +2355,24 @@ class AIAssistantPanel extends Widget {
     };
   }
 
-  private getSummaryData(cellId: string): ICellSummaryData | undefined {
-    return this.getCellSummaryData(cellId) ?? this.summaries.get(cellId);
+  private getSummaryData(
+    cellId: string,
+    panel = this.notebookTracker.currentWidget
+  ): ICellSummaryData | undefined {
+    return this.getCellSummaryData(cellId, panel) ?? this.summaries.get(cellId);
   }
 
-  private getCellSummaryData(cellId: string): ICellSummaryData | undefined {
-    const current = this.notebookTracker.currentWidget;
-    const model = current?.content.model;
+  private getCellSummaryData(
+    cellId: string,
+    panel = this.notebookTracker.currentWidget
+  ): ICellSummaryData | undefined {
+    const model = panel?.content.model;
 
-    if (!current || !model) {
+    if (!panel || !model) {
       return undefined;
     }
 
-    const cellIndex = this.findCellIndexByCellId(current, cellId);
+    const cellIndex = this.findCellIndexByCellId(panel, cellId);
 
     if (cellIndex < 0) {
       return undefined;
@@ -1482,16 +2393,16 @@ class AIAssistantPanel extends Widget {
 
   private setCellSummaryData(
     cellId: string,
-    summaryData: ICellSummaryData
+    summaryData: ICellSummaryData,
+    panel = this.notebookTracker.currentWidget
   ): void {
-    const current = this.notebookTracker.currentWidget;
-    const model = current?.content.model;
+    const model = panel?.content.model;
 
-    if (!current || !model) {
+    if (!panel || !model) {
       return;
     }
 
-    const cellIndex = this.findCellIndexByCellId(current, cellId);
+    const cellIndex = this.findCellIndexByCellId(panel, cellId);
 
     if (cellIndex < 0) {
       return;
@@ -1515,7 +2426,7 @@ class AIAssistantPanel extends Widget {
     for (let index = 0; index < model.cells.length; index++) {
       const cell = model.cells.get(index);
       const cellId = `${panel.context.path}:${cell.id}`;
-      const summaryData = this.getCellSummaryData(cellId);
+      const summaryData = this.getCellSummaryData(cellId, panel);
 
       if (summaryData) {
         this.summaries.set(cellId, summaryData);
@@ -1567,7 +2478,7 @@ class AIAssistantPanel extends Widget {
         : cellType;
     const generatedObject =
       typeof suggestionObject.generated === 'object' &&
-        suggestionObject.generated !== null
+      suggestionObject.generated !== null
         ? (suggestionObject.generated as Record<string, unknown>)
         : {};
     const generatedStatus = generatedObject.status === 'yes' ? 'yes' : 'no';
@@ -1589,12 +2500,12 @@ class AIAssistantPanel extends Widget {
       generated:
         generatedStatus === 'yes' && generatedCellId
           ? {
-            status: generatedStatus,
-            cell_id: generatedCellId
-          }
+              status: generatedStatus,
+              cell_id: generatedCellId
+            }
           : {
-            status: 'no'
-          },
+              status: 'no'
+            },
       metadata: normalizedMetadata
     };
 
@@ -1747,12 +2658,12 @@ class AIAssistantPanel extends Widget {
         ...suggestion,
         generated: generatedCellId
           ? {
-            status: 'yes' as const,
-            cell_id: this.getRawCellId(generatedCellId)
-          }
+              status: 'yes' as const,
+              cell_id: this.getRawCellId(generatedCellId)
+            }
           : {
-            status: 'no' as const
-          }
+              status: 'no' as const
+            }
       };
     });
 
@@ -1801,10 +2712,11 @@ class AIAssistantPanel extends Widget {
   }
 
   // Update the cache timestamp and persist notebook changes to disk.
-  private async saveCacheToNotebook(): Promise<void> {
-    const current = this.notebookTracker.currentWidget;
-    const model = current?.content.model;
-    if (!current || !model) {
+  private async saveCacheToNotebook(
+    panel = this.notebookTracker.currentWidget
+  ): Promise<void> {
+    const model = panel?.content.model;
+    if (!panel || !model) {
       return;
     }
 
@@ -1817,7 +2729,7 @@ class AIAssistantPanel extends Widget {
           })
         )
       );
-      await current.context.save();
+      await panel.context.save();
       console.log('[AI Assistant] Cache saved to notebook metadata.');
     } catch (e) {
       console.error('[AI Assistant] Failed to save cache:', e);
@@ -2160,7 +3072,7 @@ class AIAssistantPanel extends Widget {
     addButton.textContent = 'Add';
     addButton.dataset.lmSuppressShortcuts = 'true';
 
-    const addCustomSuggestion = () => {
+    const addCustomSuggestion = async () => {
       const customTitle = titleInput.value.trim();
       const customCellType = cellTypeSelect.value;
 
@@ -2168,7 +3080,8 @@ class AIAssistantPanel extends Widget {
         return;
       }
 
-      this.addCustomSuggestionForCell(cell, customTitle, customCellType);
+      titleInput.value = '';
+      await this.addCustomSuggestionForCell(cell, customTitle, customCellType);
     };
 
     const stopNotebookFocus = (event: MouseEvent) => {
@@ -2178,7 +3091,7 @@ class AIAssistantPanel extends Widget {
       if (event.key === 'Enter') {
         event.preventDefault();
         event.stopPropagation();
-        addCustomSuggestion();
+        void addCustomSuggestion();
       }
     };
 
@@ -2195,7 +3108,7 @@ class AIAssistantPanel extends Widget {
     addButton.onclick = event => {
       event.preventDefault();
       event.stopPropagation();
-      addCustomSuggestion();
+      void addCustomSuggestion();
     };
 
     inputGroup.appendChild(titleInput);
@@ -2206,11 +3119,11 @@ class AIAssistantPanel extends Widget {
   }
 
   // 将用户输入包装成后端 select-suggestion 接口可接收的 suggestion。
-  private addCustomSuggestionForCell(
+  private async addCustomSuggestionForCell(
     cell: ICellDescriptor,
     customTitle: string,
     customCellType: string
-  ): void {
+  ): Promise<void> {
     const title = customTitle;
     const cellType = customCellType === 'markdown' ? 'markdown' : 'code';
     const customSuggestion = this.withClientSuggestionKey(
@@ -2240,8 +3153,9 @@ class AIAssistantPanel extends Widget {
       this.suggestions.get(cell.cellId) ?? []
     );
     this.setAssistantStatus('Custom suggestion added.');
-    void this.saveCacheToNotebook();
+    await this.saveCacheToNotebook();
     this.updateNotebookInfo();
+    await this.selectSuggestionForCell(cell, customSuggestion);
   }
 
   private async selectSuggestionForCell(
@@ -2449,7 +3363,7 @@ class AIAssistantPanel extends Widget {
 
       const generatedSource =
         typeof metadata.ai_assistant_generated_source === 'object' &&
-          metadata.ai_assistant_generated_source !== null
+        metadata.ai_assistant_generated_source !== null
           ? (metadata.ai_assistant_generated_source as Record<string, unknown>)
           : {};
       const parentRawCellId =
