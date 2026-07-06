@@ -383,8 +383,9 @@ class AIAssistantPanel extends Widget {
         />
       </label>
 
-      ${needsApiKey
-        ? `
+      ${
+        needsApiKey
+          ? `
       <label class="jp-ai-assistant-llm-field">
         <span>API Key</span>
         <input
@@ -395,7 +396,7 @@ class AIAssistantPanel extends Widget {
           autocomplete="off"
         />
       </label>`
-        : ''
+          : ''
       }
 
       <div class="jp-ai-assistant-llm-actions">
@@ -779,8 +780,8 @@ class AIAssistantPanel extends Widget {
       const aiMetaLabel = isGenerated ? ' · AI' : '';
       const nodeMetaMarkup = trimmedTitle
         ? `<span class="jp-ai-assistant-tree-node-meta">#${cellIndex} · ${this.escapeHtml(
-          cellTypeLabel
-        )}${aiMetaLabel}</span>`
+            cellTypeLabel
+          )}${aiMetaLabel}</span>`
         : '';
       const compactAiMarkup =
         isGenerated && !trimmedTitle
@@ -800,14 +801,14 @@ class AIAssistantPanel extends Widget {
       const fixedSummaryMarkup =
         this.summaryDisplayMode === 'fixed'
           ? `<div class="jp-ai-assistant-tree-node-summary-fixed">${this.escapeHtml(
-            summary
-          )}</div>`
+              summary
+            )}</div>`
           : '';
       const hoverSummaryMarkup =
         this.summaryDisplayMode === 'hover'
           ? `<div class="jp-ai-assistant-tree-node-tooltip">${this.escapeHtml(
-            summary
-          )}</div>`
+              summary
+            )}</div>`
           : '';
 
       return `
@@ -822,8 +823,8 @@ class AIAssistantPanel extends Widget {
             title="Jump to cell ${cellIndex}"
           >
             <span class="jp-ai-assistant-tree-node-label">${this.escapeHtml(
-        nodeLabel
-      )}</span>
+              nodeLabel
+            )}</span>
             ${nodeMetaMarkup}
             ${compactAiMarkup}
             ${hoverSummaryMarkup}
@@ -999,8 +1000,8 @@ class AIAssistantPanel extends Widget {
       <div class="jp-ai-assistant-tree-toolbar">
         <button type="button" data-tree-zoom="out" title="Zoom out tree">-</button>
         <span class="jp-ai-assistant-tree-zoom-value">${Math.round(
-      this.treeZoom * 100
-    )}%</span>
+          this.treeZoom * 100
+        )}%</span>
         <button type="button" data-tree-zoom="in" title="Zoom in tree">+</button>
       </div>
       <div class="jp-ai-assistant-tree-legend">
@@ -1180,13 +1181,13 @@ class AIAssistantPanel extends Widget {
       childNodes.push(`
         <div class="jp-ai-assistant-tree-family">
           ${renderTreeNode(
-        childCellId,
-        generatedCellIndex,
-        generatedCell.type,
-        title,
-        summary,
-        this.isGeneratedCellId(childCellId)
-      )}
+            childCellId,
+            generatedCellIndex,
+            generatedCell.type,
+            title,
+            summary,
+            this.isGeneratedCellId(childCellId)
+          )}
           ${nestedChildNodes}
         </div>
       `);
@@ -1712,7 +1713,7 @@ class AIAssistantPanel extends Widget {
     const manualParentRawCellId = metadata.ai_assistant_tree_parent_cell_id;
     const generatedSource =
       typeof metadata.ai_assistant_generated_source === 'object' &&
-        metadata.ai_assistant_generated_source !== null
+      metadata.ai_assistant_generated_source !== null
         ? (metadata.ai_assistant_generated_source as Record<string, unknown>)
         : {};
     const generatedParentRawCellId =
@@ -1905,7 +1906,7 @@ class AIAssistantPanel extends Widget {
         : cellType;
     const generatedObject =
       typeof suggestionObject.generated === 'object' &&
-        suggestionObject.generated !== null
+      suggestionObject.generated !== null
         ? (suggestionObject.generated as Record<string, unknown>)
         : {};
     const generatedStatus = generatedObject.status === 'yes' ? 'yes' : 'no';
@@ -1927,12 +1928,12 @@ class AIAssistantPanel extends Widget {
       generated:
         generatedStatus === 'yes' && generatedCellId
           ? {
-            status: generatedStatus,
-            cell_id: generatedCellId
-          }
+              status: generatedStatus,
+              cell_id: generatedCellId
+            }
           : {
-            status: 'no'
-          },
+              status: 'no'
+            },
       metadata: normalizedMetadata
     };
 
@@ -2085,12 +2086,12 @@ class AIAssistantPanel extends Widget {
         ...suggestion,
         generated: generatedCellId
           ? {
-            status: 'yes' as const,
-            cell_id: this.getRawCellId(generatedCellId)
-          }
+              status: 'yes' as const,
+              cell_id: this.getRawCellId(generatedCellId)
+            }
           : {
-            status: 'no' as const
-          }
+              status: 'no' as const
+            }
       };
     });
 
@@ -2498,7 +2499,7 @@ class AIAssistantPanel extends Widget {
     addButton.textContent = 'Add';
     addButton.dataset.lmSuppressShortcuts = 'true';
 
-    const addCustomSuggestion = () => {
+    const addCustomSuggestion = async () => {
       const customTitle = titleInput.value.trim();
       const customCellType = cellTypeSelect.value;
 
@@ -2506,7 +2507,8 @@ class AIAssistantPanel extends Widget {
         return;
       }
 
-      this.addCustomSuggestionForCell(cell, customTitle, customCellType);
+      titleInput.value = '';
+      await this.addCustomSuggestionForCell(cell, customTitle, customCellType);
     };
 
     const stopNotebookFocus = (event: MouseEvent) => {
@@ -2516,7 +2518,7 @@ class AIAssistantPanel extends Widget {
       if (event.key === 'Enter') {
         event.preventDefault();
         event.stopPropagation();
-        addCustomSuggestion();
+        void addCustomSuggestion();
       }
     };
 
@@ -2533,7 +2535,7 @@ class AIAssistantPanel extends Widget {
     addButton.onclick = event => {
       event.preventDefault();
       event.stopPropagation();
-      addCustomSuggestion();
+      void addCustomSuggestion();
     };
 
     inputGroup.appendChild(titleInput);
@@ -2544,11 +2546,11 @@ class AIAssistantPanel extends Widget {
   }
 
   // 将用户输入包装成后端 select-suggestion 接口可接收的 suggestion。
-  private addCustomSuggestionForCell(
+  private async addCustomSuggestionForCell(
     cell: ICellDescriptor,
     customTitle: string,
     customCellType: string
-  ): void {
+  ): Promise<void> {
     const title = customTitle;
     const cellType = customCellType === 'markdown' ? 'markdown' : 'code';
     const customSuggestion = this.withClientSuggestionKey(
@@ -2578,8 +2580,9 @@ class AIAssistantPanel extends Widget {
       this.suggestions.get(cell.cellId) ?? []
     );
     this.setAssistantStatus('Custom suggestion added.');
-    void this.saveCacheToNotebook();
+    await this.saveCacheToNotebook();
     this.updateNotebookInfo();
+    await this.selectSuggestionForCell(cell, customSuggestion);
   }
 
   private async selectSuggestionForCell(
@@ -2787,7 +2790,7 @@ class AIAssistantPanel extends Widget {
 
       const generatedSource =
         typeof metadata.ai_assistant_generated_source === 'object' &&
-          metadata.ai_assistant_generated_source !== null
+        metadata.ai_assistant_generated_source !== null
           ? (metadata.ai_assistant_generated_source as Record<string, unknown>)
           : {};
       const parentRawCellId =
