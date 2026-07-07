@@ -85,6 +85,8 @@ def build_suggestions_prompt(
         selected_cell: str,
         previous_context: Dict,
         next_context: Dict,
+        previous_summaries: List[str] = None,
+        future_summaries: List[str] = None,
         generated_sug_title: List[str] = None,
 ) -> List[Dict[str, str]]:
     """
@@ -110,6 +112,14 @@ You are given:
   cells that appear before the selected cell.
 - Next notebook context:
   cells that appear after the selected cell.
+- Previous notebook summaries:
+  High-level summaries of all notebook cells that appear before the selected cell.
+- Future notebook summaries:
+  High-level summaries of all notebook cells that appear after the selected cell.
+
+The local contexts provide detailed nearby information.
+The summaries provide a broader understanding of the notebook structure,
+workflow, goals, and progression.
 
 For each suggestion generate:
 - suggestion:
@@ -149,6 +159,9 @@ Expected format:
 """
 
     user_prompt = f"""
+PREVIOUS NOTEBOOK SUMMARIES:
+{previous_summaries}
+
 PREVIOUS CONTEXT:
 {previous_context_text}
 
@@ -157,6 +170,9 @@ CURRENT SELECTED CELL:
 
 NEXT CONTEXT:
 {next_context_text}
+
+FUTURE NOTEBOOK SUMMARIES:
+{future_summaries}
 
 PREVIOUSLY GENERATED SUGGESTIONS:
 {generated_sug_title}

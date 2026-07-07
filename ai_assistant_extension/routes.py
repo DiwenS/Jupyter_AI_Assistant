@@ -14,6 +14,7 @@ from .llm_client import (
     test_llm_connection,
     classify_llm_error,
 )
+from .data_preprocessing import _format_tree_outline, collect_previous_summaries_by_index, collect_future_summaries_by_index, collect_tree_warnings
 
 
 class HelloRouteHandler(APIHandler):
@@ -214,8 +215,9 @@ class SuggestNextStepsHandler(APIHandler):
     @tornado.web.authenticated
     def post(self):
         data = self.get_json_body() or {}
-        # print("[INFO] Frontend data")
-        # print(data)
+        print("[INFO] Frontend data")
+        print(data)
+        print("========= ✅ =========")
 
         selected_cell = data.get("selectedCell", {})
         context = data.get("context", {})
@@ -244,11 +246,54 @@ class SuggestNextStepsHandler(APIHandler):
         print(generated_sug_titles)
         print("======== ✅ ========")
 
+        current_cell_index = selected_cell.get("cellIndex", "")
+        previous_summaries = collect_previous_summaries_by_index(context["tree"], current_cell_index)
+        print("[INFO] previous summaries:")
+        print(previous_summaries)
+        print("======== ✅ ========")
+        """
+        [INFO] previous summaries:
+        ['This cell reads a CSV file into a pandas DataFrame using the pd.read_csv function.']
+        """
+
+        future_summaries = collect_future_summaries_by_index(context["tree"], current_cell_index)
+        print("[INFO] future summaries:")
+        print(future_summaries)
+        print("======== ✅ ========")
+        """
+        [INFO] future summaries:
+        ['Documents the process of loading a CSV dataset into a pandas DataFrame and verifying its contents.']
+        """
+
+        notebook_outline = _format_tree_outline(context["tree"])
+        print("[INFO] notebook outline:")
+        print(notebook_outline)
+        print("======== ✅ ========")
+        """
+        [INFO] Notebook outline:
+        Notebook Outline
+        - (Untitled) [code]
+        - Load CSV Dataset [code]
+            Summary: This cell reads a CSV file into a pandas DataFrame using the pd.read_csv function.
+            - Data Verification Steps [markdown]
+            Summary: Documents the process of verifying a pandas DataFrame, including shape, info, missing values, and summary statistics.
+        - Dataset Loading and Verification [markdown]
+            Summary: Documents the process of loading a CSV dataset into a pandas DataFrame and verifying its contents.
+        - (Untitled) [markdown]
+        """
+        warnings = collect_tree_warnings(context["tree"])
+        if warnings:
+            print("[WARNING] Notebook preprocessing warnings:")
+            print(warnings)
+
+
         try:
             raw_suggestions = suggest_next_cell(
                 cell_source,
                 previous_cells,
                 next_cells,
+                previous_summaries,
+                future_summaries,
                 generated_sug_titles,
             )
         except Exception as e:
