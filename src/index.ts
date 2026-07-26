@@ -76,6 +76,8 @@ class AIAssistantPanel extends Widget {
   // 保存 tree 的缩放比例，1 表示 100%。
   private treeZoom = 1;
   private treePopupStates = new Map<string, ITreePopupState>();
+  // 控制 notebook cell 下方的 suggestion panel 是否显示；只影响前端展示，不清空缓存。
+  private suggestionsHidden = false;
 
   // 当前 LLM 配置（从后端拉取，不含真实 apiKey）。初次渲染前为 null。
   private llmConfig: ILLMConfig | null = null;
@@ -174,6 +176,15 @@ class AIAssistantPanel extends Widget {
           Clear cache
         </button>
 
+        <button
+          id="toggle-suggestions-panel"
+          type="button"
+          aria-pressed="${this.suggestionsHidden ? 'true' : 'false'}"
+          title="${this.suggestionsHidden ? 'Show suggestion panels under notebook cells' : 'Hide suggestion panels under notebook cells'}"
+        >
+          ${this.suggestionsHidden ? 'Show suggestions' : 'Hide suggestions'}
+        </button>
+
         <div id="cache-status" style="font-size:12px;margin:4px 0;color:#2196f3;"></div>        <hr />
 
         <div
@@ -265,6 +276,17 @@ class AIAssistantPanel extends Widget {
       this.updateNotebookInfo();
     };
 
+    const toggleSuggestionsPanelButton = this.node.querySelector(
+      '#toggle-suggestions-panel'
+    ) as HTMLButtonElement;
+
+    toggleSuggestionsPanelButton.onclick = () => {
+      const current = this.notebookTracker.currentWidget;
+      this.suggestionsHidden = !this.suggestionsHidden;
+      this.updateSuggestionsPanelToggleButton();
+      this.updateNotebookInfoPreservingActiveCell(current);
+    };
+
     // 切换 summary 显示方式后，只需要重新渲染 tree，不需要重新请求后端。
     const fixedModeInput = this.node.querySelector(
       '#summary-mode-fixed'
@@ -312,8 +334,30 @@ class AIAssistantPanel extends Widget {
     };
 
     this.updateTreeZoomControls();
+    this.updateSuggestionsPanelToggleButton();
     this.bindModelSettingsToggle();
     this.bindLLMSettingsEvents();
+  }
+
+  private updateSuggestionsPanelToggleButton(): void {
+    const button = this.node.querySelector(
+      '#toggle-suggestions-panel'
+    ) as HTMLButtonElement | null;
+
+    if (!button) {
+      return;
+    }
+
+    button.textContent = this.suggestionsHidden
+      ? 'Show suggestions'
+      : 'Hide suggestions';
+    button.setAttribute(
+      'aria-pressed',
+      this.suggestionsHidden ? 'true' : 'false'
+    );
+    button.title = this.suggestionsHidden
+      ? 'Show suggestion panels under notebook cells'
+      : 'Hide suggestion panels under notebook cells';
   }
 
   // 根据 provider 渲染不同的字段（baseUrl 是否需要、apiKey 提示等）。
@@ -1996,6 +2040,78 @@ class AIAssistantPanel extends Widget {
     }
   }
 
+  private updateNotebookInfoPreservingActiveCell(
+    panel: NotebookPanel | null | undefined
+  ): void {
+    const activeCellIndex = panel?.content.activeCellIndex ?? -1;
+    const activeCellWidget =
+      activeCellIndex >= 0 ? panel?.content.widgets[activeCellIndex] : null;
+    const activeCellNode = activeCellWidget?.node ?? null;
+    const scrollHost = activeCellNode
+      ? this.findScrollableAncestor(activeCellNode, panel?.content.node ?? null)
+      : null;
+    const previousTop = activeCellNode?.getBoundingClientRect().top ?? null;
+
+    this.updateNotebookInfo();
+
+    window.setTimeout(() => {
+      if (!panel || activeCellIndex < 0) {
+        return;
+      }
+
+      const nextActiveCellWidget = panel.content.widgets[activeCellIndex];
+      const nextActiveCellNode = nextActiveCellWidget?.node ?? null;
+
+      if (!nextActiveCellNode) {
+        return;
+      }
+
+      panel.content.activeCellIndex = activeCellIndex;
+      panel.activate();
+      panel.content.activate();
+
+      if (previousTop === null) {
+        return;
+      }
+
+      const nextScrollHost =
+        scrollHost ??
+        this.findScrollableAncestor(nextActiveCellNode, panel.content.node);
+      const nextTop = nextActiveCellNode.getBoundingClientRect().top;
+      const scrollDelta = nextTop - previousTop;
+
+      if (nextScrollHost) {
+        nextScrollHost.scrollTop += scrollDelta;
+      } else {
+        window.scrollBy(0, scrollDelta);
+      }
+    }, 0);
+  }
+
+  private findScrollableAncestor(
+    node: HTMLElement,
+    fallbackNode: HTMLElement | null
+  ): HTMLElement | null {
+    let candidate = node.parentElement;
+
+    while (candidate) {
+      const overflowY = window.getComputedStyle(candidate).overflowY;
+      const canScroll = /(auto|scroll|overlay)/.test(overflowY);
+
+      if (canScroll && candidate.scrollHeight > candidate.clientHeight) {
+        return candidate;
+      }
+
+      candidate = candidate.parentElement;
+    }
+
+    if (fallbackNode && fallbackNode.scrollHeight > fallbackNode.clientHeight) {
+      return fallbackNode;
+    }
+
+    return null;
+  }
+
   private getVisibleTreeTargetCellIndex(
     panel: NotebookPanel,
     cellIndex: number
@@ -2893,13 +3009,18 @@ class AIAssistantPanel extends Widget {
       return;
     }
 
+    if (this.suggestionsHidden) {
+      this.suggestionsHidden = false;
+      this.updateSuggestionsPanelToggleButton();
+    }
+
     this.pendingSuggestionCellID = selectedCell.cellId;
     this.setAssistantStatus(
       `Requesting next-step suggestions for cell ${cellIndex}.`,
       null,
       statusKey
     );
-    this.updateNotebookInfo();
+    this.updateNotebookInfoPreservingActiveCell(panel);
 
     const context = this.buildNotebookContext(cellIndex);
     let response: Awaited<ReturnType<typeof suggestNextSteps>>;
@@ -2946,7 +3067,7 @@ class AIAssistantPanel extends Widget {
       statusKey
     );
     await this.saveCacheToNotebook();
-    this.updateNotebookInfo();
+    this.updateNotebookInfoPreservingActiveCell(panel);
   }
   //显示具体的suggestions
   private syncCellSuggestions(): void {
@@ -2957,6 +3078,15 @@ class AIAssistantPanel extends Widget {
     }
 
     window.setTimeout(() => {
+      if (this.suggestionsHidden) {
+        current.content.widgets.forEach(cellWidget => {
+          cellWidget.node
+            .querySelector('.jp-ai-assistant-cell-suggestions')
+            ?.remove();
+        });
+        return;
+      }
+
       const cells = this.getCurrentCells();
 
       current.content.widgets.forEach((cellWidget, index) => {
