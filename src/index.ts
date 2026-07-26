@@ -2239,7 +2239,7 @@ class AIAssistantPanel extends Widget {
     });
   }
 
-  // 跳转到 notebook 中对应的 cell，并把它滚动到视图中央。
+  // 跳转到 notebook 中对应的 cell，并使用 JupyterLab 原生滚动把 cell 顶部对齐到视图顶部。
   private async jumpToCell(
     cellIndex: number,
     panel = this.notebookTracker.currentWidget
@@ -2253,9 +2253,57 @@ class AIAssistantPanel extends Widget {
     panel.content.activeCellIndex = cellIndex;
     panel.activate();
     panel.content.activate();
-    await panel.content.scrollToItem(cellIndex, 'center');
+    await panel.content.scrollToItem(cellIndex, 'start');
     this.updateNotebookInfo();
     this.scrollActiveTreeNodeIntoView();
+  }
+
+  private scrollSuggestionPanelToCenter(
+    panel: NotebookPanel,
+    cellIndex: number,
+    behavior: ScrollBehavior
+  ): void {
+    window.setTimeout(() => {
+      const cellWidget = panel.content.widgets[cellIndex];
+      const suggestionPanel = cellWidget?.node.querySelector<HTMLElement>(
+        '.jp-ai-assistant-cell-suggestions'
+      );
+
+      if (suggestionPanel) {
+        this.scrollElementCenterToCenter(
+          suggestionPanel,
+          panel.content.node,
+          behavior
+        );
+      }
+    }, 0);
+  }
+
+  private scrollElementCenterToCenter(
+    target: HTMLElement,
+    fallbackNode: HTMLElement,
+    behavior: ScrollBehavior
+  ): void {
+    const scrollHost = this.findScrollableAncestor(target, fallbackNode);
+
+    if (!scrollHost) {
+      target.scrollIntoView({ block: 'center', inline: 'nearest', behavior });
+      return;
+    }
+
+    const hostRect = scrollHost.getBoundingClientRect();
+    const targetRect = target.getBoundingClientRect();
+    const targetCenterOffset =
+      targetRect.top -
+      hostRect.top +
+      scrollHost.scrollTop +
+      targetRect.height / 2;
+    const nextScrollTop = targetCenterOffset - hostRect.height / 2;
+
+    scrollHost.scrollTo({
+      top: Math.max(0, nextScrollTop),
+      behavior
+    });
   }
 
   private getCellDescriptor(
@@ -3068,6 +3116,7 @@ class AIAssistantPanel extends Widget {
     );
     await this.saveCacheToNotebook();
     this.updateNotebookInfoPreservingActiveCell(panel);
+    this.scrollSuggestionPanelToCenter(panel, cellIndex, 'smooth');
   }
   //显示具体的suggestions
   private syncCellSuggestions(): void {
