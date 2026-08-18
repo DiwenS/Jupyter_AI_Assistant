@@ -1,142 +1,311 @@
 # ai_assistant_extension
 
-[![Github Actions Status](/workflows/Build/badge.svg)](/actions/workflows/build.yml)
+An AI-assisted JupyterLab extension for cell summarization, notebook tree visualization, context-aware next-step suggestions, and generated notebook cells.
 
-An AI-assisted JupyterLab extension for cell summarization, editable notebook trees, and lightweight next-step suggestions.
+This repository contains both parts of a JupyterLab frontend-and-server extension:
 
-This extension is composed of a Python package named `ai_assistant_extension`
-for the server extension and a NPM package named `ai-assistant-extension`
-for the frontend extension.
+- `ai_assistant_extension`: the Python package for the Jupyter Server backend extension
+- `ai-assistant-extension`: the NPM package for the JupyterLab frontend extension
 
-## Requirements
+## Features
 
-- JupyterLab >= 4.0.0
+- Summarize notebook cells and generate short titles/descriptions.
+- Build an interactive tree view of notebook cells and generated child cells.
+- Generate AI next-step suggestions for the current cell using notebook context.
+- Generate new cell content from a selected suggestion.
+- Configure LLM providers from the JupyterLab UI.
+- Support local Ollama models and remote API-compatible providers.
+- Recover gracefully from LLM errors without blocking the notebook UI.
 
-## Install
+## System Requirements
 
-To install the extension, execute:
+### Required
+
+- Python `>=3.10`
+- JupyterLab `>=4.0.0,<5`
+- Jupyter Server `>=2.4.0,<3`
+- Node.js, required for building the frontend extension
+- `jlpm`, JupyterLab's pinned Yarn command
+- `pip`
+
+### Python Dependencies
+
+The Python dependencies are declared in `pyproject.toml`:
+
+- `jupyter_server>=2.4.0,<3`
+- `requests>=2.31.0`
+
+### Frontend Dependencies
+
+The frontend dependencies are declared in `package.json`, including:
+
+- `@jupyterlab/application`
+- `@jupyterlab/coreutils`
+- `@jupyterlab/notebook`
+- `@jupyterlab/services`
+- `@jupyterlab/settingregistry`
+- `typescript`
+
+### Optional Local LLM Runtime
+
+For local AI generation, install and run Ollama separately. The default local configuration used by the extension is:
+
+- Provider: `ollama`
+- Base URL: `http://localhost:11434`
+- Model: `qwen3:8b`
+
+Example Ollama setup:
 
 ```bash
-pip install ai_assistant_extension
+ollama pull qwen3:8b
+ollama serve
 ```
 
-## Uninstall
+If you use `openai-compatible` or `anthropic` instead, configure the provider, base URL, model, and API key in the extension's LLM settings panel.
 
-To remove the extension, execute:
+## Project Structure
+
+```text
+ai_assistant_extension/      Python backend server extension
+src/                         TypeScript frontend JupyterLab extension
+style/                       Frontend styles
+schema/                      JupyterLab settings schema
+jupyter-config/              Jupyter Server extension configuration
+docs/                        Backend/API documentation
+package.json                 Frontend package and build scripts
+pyproject.toml               Python package and JupyterLab build metadata
+```
+
+Important backend files:
+
+- `ai_assistant_extension/routes.py`: REST API route handlers.
+- `ai_assistant_extension/summarizer.py`: cell summarization logic.
+- `ai_assistant_extension/suggester.py`: AI next-step suggestion logic.
+- `ai_assistant_extension/sug_content.py`: generated content for selected suggestions.
+- `ai_assistant_extension/prompts.py`: prompt construction.
+- `ai_assistant_extension/llm_client.py`: LLM provider configuration and API calls.
+- `ai_assistant_extension/data_preprocessing.py`: notebook context preprocessing.
+
+Important frontend files:
+
+- `src/index.ts`: main JupyterLab plugin, panel UI, notebook tree, and cell interactions.
+- `src/api.ts`: typed frontend API wrappers.
+- `src/request.ts`: low-level Jupyter Server request helper.
+- `src/llmErrors.ts`: frontend LLM error parsing.
+- `src/errorDisplay.ts`: frontend error presentation helpers.
+
+## Development Setup
+
+Always activate the project environment before running Python, Jupyter, `pip`, or `jlpm` commands.
 
 ```bash
-pip uninstall ai_assistant_extension
+cd /path/to/Jupyter_AI_Assistant
+python -m venv .venv
+source .venv/bin/activate
 ```
 
-## Troubleshoot
-
-If you are seeing the frontend extension, but it is not working, check
-that the server extension is enabled:
+Install the Python package in editable mode:
 
 ```bash
-jupyter server extension list
+pip install -e .
 ```
 
-If the server extension is installed and enabled, but you are not seeing
-the frontend extension, check the frontend extension is installed:
+Install frontend dependencies:
+
+```bash
+jlpm install
+```
+
+## Running the Project
+
+### 1. Activate the Environment
+
+```bash
+cd /path/to/Jupyter_AI_Assistant
+source .venv/bin/activate
+```
+
+### 2. Build the Frontend Extension
+
+```bash
+jlpm build
+```
+
+This compiles TypeScript into `lib/` and builds the JupyterLab extension assets into `ai_assistant_extension/labextension/`.
+
+### 3. Register the Extension with JupyterLab
+
+Run these commands once after setup, or again if JupyterLab does not detect the extension:
+
+```bash
+pip install -e .
+jupyter labextension develop . --overwrite
+jupyter server extension enable ai_assistant_extension
+```
+
+### 4. Start JupyterLab
+
+```bash
+jupyter lab
+```
+
+Open a notebook and use the AI Assistant panel in JupyterLab.
+
+### 5. Configure the LLM Provider
+
+In the AI Assistant panel:
+
+1. Open the LLM settings section.
+2. Select a provider, for example `ollama`.
+3. Set the model, for example `qwen3:8b`.
+4. Set the base URL, for example `http://localhost:11434`.
+5. Save the configuration.
+
+For Ollama, no API key is required. For remote providers, enter the required API key.
+
+## Recommended Development Workflow
+
+Use two terminals while developing.
+
+Terminal 1, watch frontend changes:
+
+```bash
+source .venv/bin/activate
+jlpm watch
+```
+
+Terminal 2, run JupyterLab:
+
+```bash
+source .venv/bin/activate
+jupyter lab
+```
+
+After editing TypeScript files in `src/`, refresh the browser. If you are not using `jlpm watch`, run:
+
+```bash
+jlpm build
+```
+
+After editing Python files in `ai_assistant_extension/`, restart the JupyterLab server.
+
+## Validation Commands
+
+Check Python syntax:
+
+```bash
+python -m py_compile ai_assistant_extension/routes.py
+```
+
+Check TypeScript:
+
+```bash
+npx tsc --noEmit
+```
+
+Build the extension:
+
+```bash
+jlpm build
+```
+
+Verify frontend extension installation:
 
 ```bash
 jupyter labextension list
 ```
 
-## Contributing
-
-### Development install
-
-Note: You will need NodeJS to build the extension package.
-
-The `jlpm` command is JupyterLab's pinned version of
-[yarn](https://yarnpkg.com/) that is installed with JupyterLab. You may use
-`yarn` or `npm` in lieu of `jlpm` below.
+Verify backend server extension installation:
 
 ```bash
-# Clone the repo to your local environment
-# Change directory to the ai_assistant_extension directory
-
-# Set up a virtual environment and install package in development mode
-python -m venv .venv
-source .venv/bin/activate
-pip install --editable "."
-
+jupyter server extension list
 ```
 
+## API Overview
+
+The frontend communicates with the backend through the `ai-assistant-extension` API namespace.
+
+Important endpoints:
+
+- `GET /ai-assistant-extension/hello`
+- `GET /ai-assistant-extension/health`
+- `GET /ai-assistant-extension/llm-config`
+- `POST /ai-assistant-extension/llm-config`
+- `POST /ai-assistant-extension/llm-test`
+- `POST /ai-assistant-extension/summarize-cell`
+- `POST /ai-assistant-extension/suggest-next-steps`
+- `POST /ai-assistant-extension/select-suggestion`
+- `POST /ai-assistant-extension/fix-code-error`
+
+## Troubleshooting
+
+### Frontend Extension Is Not Visible
+
+Check whether the frontend extension is installed and enabled:
+
 ```bash
-# Link your development version of the extension with JupyterLab
+jupyter labextension list
+```
+
+If it is missing, run:
+
+```bash
 jupyter labextension develop . --overwrite
-# Server extension must be manually installed in develop mode
-jupyter server extension enable ai_assistant_extension
-
-# Rebuild extension Typescript source after making changes
-# IMPORTANT: Unlike the steps above which are performed only once, do this step
-# every time you make a change.
 jlpm build
-
-# Watch the source directory in one terminal, automatically rebuilding when needed
-jlpm watch
-# Run JupyterLab in another terminal
-jupyter lab
 ```
 
-You can watch the source directory and run JupyterLab at the same time in different terminals to watch for changes in the extension's source and automatically rebuild the extension.
+Then restart JupyterLab and refresh the browser.
 
-With the watch command running, every saved change will immediately be built locally and available in your running JupyterLab. Refresh JupyterLab to load the change in your browser (you may need to wait several seconds for the extension to be rebuilt).
+### Backend API Is Not Working
 
-By default, the `jlpm build` command generates the source maps for this extension to make it easier to debug using the browser dev tools. To also generate source maps for the JupyterLab core extensions, you can run the following command:
+Check whether the server extension is enabled:
 
 ```bash
-jupyter lab build --minimize=False
+jupyter server extension list
 ```
 
-### Development uninstall
+If it is disabled, run:
 
 ```bash
-# Server extension must be manually disabled in develop mode
+jupyter server extension enable ai_assistant_extension
+```
+
+Then restart JupyterLab.
+
+### Ollama Connection Fails
+
+Make sure Ollama is running and the model is available:
+
+```bash
+ollama list
+ollama serve
+```
+
+The default base URL is `http://localhost:11434`.
+
+### Changes Do Not Appear in JupyterLab
+
+- TypeScript changes require `jlpm build` or `jlpm watch`, followed by a browser refresh.
+- Python backend changes require restarting the JupyterLab server.
+- Extension registration problems may require rerunning:
+
+```bash
+pip install -e .
+jupyter labextension develop . --overwrite
+jupyter server extension enable ai_assistant_extension
+```
+
+## Uninstall
+
+Disable and remove the development extension:
+
+```bash
 jupyter server extension disable ai_assistant_extension
 pip uninstall ai_assistant_extension
 ```
 
-In development mode, you will also need to remove the symlink created by `jupyter labextension develop`
-command. To find its location, you can run `jupyter labextension list` to figure out where the `labextensions`
-folder is located. Then you can remove the symlink named `ai-assistant-extension` within that folder.
+In development mode, you may also need to remove the symlink created by `jupyter labextension develop . --overwrite`. Use `jupyter labextension list` to find the labextensions directory, then remove the `ai-assistant-extension` symlink.
 
-## AI Coding Assistant Support
+## Packaging
 
-This project includes an `AGENTS.md` file with coding standards and best practices for JupyterLab extension development. The file follows the [AGENTS.md standard](https://agents.md) for cross-tool compatibility.
-
-### Compatible AI Tools
-
-`AGENTS.md` works with AI coding assistants that support the standard, including Cursor, GitHub Copilot, Windsurf, Aider, and others. For a current list of compatible tools, see [the AGENTS.md standard](https://agents.md).
-
-Other conventions you might encounter:
-
-- `.cursorrules` - Cursor's YAML/JSON format (Cursor also supports AGENTS.md natively)
-- `CONVENTIONS.md` / `CONTRIBUTING.md` - For CodeConventions.ai and GitHub bots
-- Project-specific rules in JetBrains AI Assistant settings
-
-All tool-specific files should be symlinks to `AGENTS.md` as the single source of truth.
-
-### What's Included
-
-The `AGENTS.md` file provides guidance on:
-
-- Code quality rules and file-scoped validation commands
-- Naming conventions for packages, plugins, and files
-- Coding standards (TypeScript, Python)
-- Development workflow and debugging
-- Backend-frontend integration patterns (`APIHandler`, `requestAPI()`, routing)
-- Common pitfalls and how to avoid them
-
-### Customization
-
-You can edit `AGENTS.md` to add project-specific conventions or adjust guidelines to match your team's practices. The file uses plain Markdown with Do/Don't patterns and references to actual project files.
-
-**Note**: `AGENTS.md` is living documentation. Update it when you change conventions, add dependencies, or discover new patterns. Include `AGENTS.md` updates in commits that modify workflows or coding standards.
-
-### Packaging the extension
-
-See [RELEASE](RELEASE.md)
+Release and packaging instructions are documented in `RELEASE.md`.
