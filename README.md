@@ -61,7 +61,7 @@ ollama pull qwen3:8b
 ollama serve
 ```
 
-If you use `openai-compatible` or `anthropic` instead, configure the provider, base URL, model, and API key in the extension's LLM settings panel.
+[Recommended]: If you use `openai-compatible` or `anthropic` instead, configure the provider, base URL, model, and API key in the extension's LLM settings panel.
 
 ## Project Structure
 
@@ -156,10 +156,11 @@ Open a notebook and use the AI Assistant panel in JupyterLab.
 In the AI Assistant panel:
 
 1. Open the LLM settings section.
-2. Select a provider, for example `ollama`.
-3. Set the model, for example `qwen3:8b`.
-4. Set the base URL, for example `http://localhost:11434`.
-5. Save the configuration.
+2. Select a provider, for example `OpenAI`.
+3. Set the model, for example `gpt-4o-mini`.
+4. Set the base URL, for example `https://api.openai.com/v1`.
+5. Enter the API key if required by the provider.
+6. Save the configuration.
 
 For Ollama, no API key is required. For remote providers, enter the required API key.
 
