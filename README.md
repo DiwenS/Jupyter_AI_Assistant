@@ -1,4 +1,4 @@
-# ai_assistant_extension
+# Ai_Assistant_Extension
 
 An AI-assisted JupyterLab extension for cell summarization, notebook tree visualization, context-aware next-step suggestions, and generated notebook cells.
 
